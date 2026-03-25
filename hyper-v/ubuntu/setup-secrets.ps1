@@ -79,7 +79,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Json')]
     [string] $ConfigJson,
 
-    # Path to a JSON file with the VM definitions array.
+    # Path to a JSON file containing the VM config. Mutually exclusive with
     [Parameter(Mandatory, ParameterSetName = 'File')]
     [string] $ConfigFile,
 
@@ -139,7 +139,24 @@ foreach ($vm in $vmDefs) {
 Write-Host "✓ JSON validated - $($vmDefs.Count) VM definition(s) found." -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# 3. Install SecretManagement modules if not already present
+# 3. Ensure NuGet provider is available
+#    PowerShellGet requires NuGet >= 2.8.5.201 to install modules from
+#    PSGallery. Bootstrap it silently so the script does not prompt.
+# ---------------------------------------------------------------------------
+
+$nuget = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
+if ($null -eq $nuget -or $nuget.Version -lt [Version]'2.8.5.201') {
+    Write-Host "Installing NuGet package provider ..." -ForegroundColor Cyan
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 `
+        -Scope CurrentUser -Force | Out-Null
+    Write-Host "✓ NuGet provider installed." -ForegroundColor Green
+}
+else {
+    Write-Host "✓ NuGet provider already present ($($nuget.Version))." -ForegroundColor Green
+}
+
+# ---------------------------------------------------------------------------
+# 4. Install SecretManagement modules if not already present
 #    Both modules are published by Microsoft on the PowerShell Gallery.
 # ---------------------------------------------------------------------------
 
@@ -161,7 +178,7 @@ foreach ($mod in $requiredModules) {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Configure SecretStore (first-time only)
+# 5. Configure SecretStore (first-time only)
 #    Authentication=None means the vault is unlocked automatically for the
 #    current Windows user - the AES-256 encryption key is derived from the
 #    Windows user profile. No separate vault password is required unless
@@ -219,7 +236,7 @@ else {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Store the JSON config in the vault
+# 7. Store the JSON config in the vault
 #    Set-Secret overwrites an existing value with the same name, so
 #    re-running this script safely updates the stored config.
 # ---------------------------------------------------------------------------
@@ -231,7 +248,7 @@ Set-Secret -Vault $vaultName -Name $secretName -Secret $ConfigJson
 Write-Host "✓ Secret stored." -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# 7. Verify round-trip: read back and parse to confirm nothing was corrupted
+# 8. Verify round-trip: read back and parse to confirm nothing was corrupted
 # ---------------------------------------------------------------------------
 
 $readBack = Get-Secret -Vault $vaultName -Name $secretName -AsPlainText
