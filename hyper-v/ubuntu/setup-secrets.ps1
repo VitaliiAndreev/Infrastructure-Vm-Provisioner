@@ -187,36 +187,50 @@ foreach ($mod in $requiredModules) {
 #    Windows user profile. No separate vault password is required unless
 #    -RequireVaultPassword was passed.
 #
-#    IMPORTANT: Set-SecretStoreConfiguration must be the first SecretStore
-#    call made. If any other cmdlet (e.g. Get-SecretStoreConfiguration) runs
-#    first, SecretStore initializes itself with the default config (password
-#    required) and prompts interactively before we can override it.
+#    Every SecretStore cmdlet triggers store initialization if the store does
+#    not yet exist, and the default initialization requires a password. To
+#    avoid the prompt we must distinguish "store not yet created" from
+#    "store already exists" without invoking any SecretStore cmdlet.
+#    We do this by checking for the store config file on disk.
 #
-#    -Interaction None ensures no prompts are shown.
-#    -Confirm:$false suppresses the "are you sure?" prompt.
-#
-#    On a fresh install this initializes the store. On a re-run with the same
-#    auth mode it is effectively a no-op. Switching from Password to None on
-#    an existing store requires the current vault password - we catch that
-#    and warn rather than failing hard.
+#    - Fresh store: Reset-SecretStore initializes it to a known state with
+#      no prompts. -Force skips the "this wipes all secrets" confirmation
+#      (safe here because there are no secrets yet).
+#    - Existing store: Get-SecretStoreConfiguration reads the current auth
+#      mode; we warn if it differs from what was requested rather than
+#      silently changing it (which would require the vault password anyway).
 # ---------------------------------------------------------------------------
 
-$authMode = if ($RequireVaultPassword) { 'Password' } else { 'None' }
+$authMode    = if ($RequireVaultPassword) { 'Password' } else { 'None' }
+# SecretStore writes its config file here on all supported Windows versions.
+$storeConfig = Join-Path $env:LOCALAPPDATA `
+    'Microsoft\PowerShell\secretmanagement\localstore\storeconfig'
 
 Write-Host "Configuring SecretStore (Authentication=$authMode) ..." -ForegroundColor Cyan
-try {
-    Set-SecretStoreConfiguration -Authentication $authMode -Interaction None -Confirm:$false
-    Write-Host "✓ SecretStore configured." -ForegroundColor Green
+
+if (-not (Test-Path $storeConfig)) {
+    # Store has never been initialized - create it with the desired auth mode.
+    # Reset-SecretStore is the only cmdlet that accepts auth mode at creation
+    # time without first running default (password) initialization.
+    Reset-SecretStore -Authentication $authMode -Interaction None -Force
+    Write-Host "✓ SecretStore initialized." -ForegroundColor Green
 }
-catch {
-    # This typically means the store already exists with a different auth
-    # mode and switching requires the current vault password. The existing
-    # configuration is left unchanged.
-    Write-Warning (
-        "Could not apply Authentication=$authMode to SecretStore: $_`n" +
-        "If the store was previously configured with a password, run " +
-        "Set-SecretStoreConfiguration manually to change it."
-    )
+else {
+    # Store already exists - read config (safe: store is already initialized
+    # so this cmdlet will not prompt).
+    $existing = Get-SecretStoreConfiguration
+    if ($existing.Authentication -ne $authMode) {
+        Write-Warning (
+            "SecretStore is already configured with " +
+            "Authentication='$($existing.Authentication)'. " +
+            "The requested mode '$authMode' was not applied. " +
+            "Run Set-SecretStoreConfiguration manually to change it."
+        )
+    }
+    else {
+        Write-Host "✓ SecretStore already configured (Authentication=$authMode)." `
+            -ForegroundColor Green
+    }
 }
 
 # ---------------------------------------------------------------------------
