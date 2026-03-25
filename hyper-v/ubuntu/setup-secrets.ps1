@@ -96,7 +96,7 @@ $ErrorActionPreference = 'Stop'
 # ---------------------------------------------------------------------------
 
 if ($PSCmdlet.ParameterSetName -eq 'File') {
-    if (-not (Test-Path $ConfigFile)) {
+    if (-not (Test-Path $ConfigFile -PathType Leaf)) {
         throw "Config file not found: $ConfigFile"
     }
     $ConfigJson = Get-Content -Raw -Path $ConfigFile
