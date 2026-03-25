@@ -76,6 +76,20 @@ All fields are required. After first boot, connect via `ssh username@ipAddress`.
 
 ---
 
+## provision.ps1
+
+Run as Administrator after `setup-secrets.ps1` has stored the config.
+
+```powershell
+.\provision.ps1
+```
+
+Reads `VmProvisionerConfig` from the vault and for each VM definition:
+
+1. Validates all required fields.
+
+---
+
 ## Repo structure
 
 ```
