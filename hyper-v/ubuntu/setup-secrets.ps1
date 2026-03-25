@@ -91,6 +91,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. "$PSScriptRoot\common.ps1"
+
 # ---------------------------------------------------------------------------
 # 1. Load JSON from file or inline string
 # ---------------------------------------------------------------------------
@@ -107,35 +109,7 @@ if ($PSCmdlet.ParameterSetName -eq 'File') {
 #    Fail fast - no point installing modules if the config is malformed.
 # ---------------------------------------------------------------------------
 
-try {
-    $vmDefs = $ConfigJson | ConvertFrom-Json -ErrorAction Stop
-}
-catch {
-    throw "Invalid JSON: $_"
-}
-
-if ($vmDefs -isnot [array] -or $vmDefs.Count -eq 0) {
-    throw "Config must be a non-empty JSON array of VM definitions."
-}
-
-# Required fields that every VM definition must supply.
-$requiredFields = @(
-    'vmName', 'cpuCount', 'ramGB', 'diskGB', 'ubuntuVersion',
-    'username', 'password',
-    'ipAddress', 'subnetMask', 'gateway', 'dns',
-    'vmConfigPath', 'vhdPath'
-)
-
-foreach ($vm in $vmDefs) {
-    foreach ($field in $requiredFields) {
-        # Use the PSObject property bag so we catch nulls as well as missing keys.
-        $prop = $vm.PSObject.Properties[$field]
-        if ($null -eq $prop -or [string]::IsNullOrWhiteSpace($prop.Value)) {
-            throw "VM definition is missing required field '$field': $($vm | ConvertTo-Json -Depth 1)"
-        }
-    }
-}
-
+$vmDefs = @(ConvertFrom-VmConfigJson -Json $ConfigJson)
 Write-Host "✓ JSON validated - $($vmDefs.Count) VM definition(s) found." -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
@@ -187,38 +161,70 @@ foreach ($mod in $requiredModules) {
 #    Windows user profile. No separate vault password is required unless
 #    -RequireVaultPassword was passed.
 #
-#    Any SecretStore cmdlet on a Password-protected store prompts for the
-#    vault password. To detect the current auth mode without triggering a
-#    prompt we read the storeconfig JSON file directly rather than calling
-#    Get-SecretStoreConfiguration.
+#    Detection strategy: call Get-SecretStoreConfiguration first (the
+#    official API, reliable across module versions). On an uninitialized
+#    store it throws, which we treat as "needs init". On a None-auth store
+#    it returns without prompting. On a Password-auth store the behaviour
+#    varies by module version, so we fall back to reading the storeconfig
+#    file directly.
 #
-#    SecretStore also prompts during first-time initialization regardless of
-#    the target auth mode. To bypass this we initialize with a known temp
-#    password (non-interactive) then immediately switch to None auth.
+#    Initialization strategy: SecretStore requires a password even when the
+#    target auth mode is None. We initialize with a known temp password
+#    (non-interactive since we supply it), then immediately switch to None
+#    auth. $ConfirmPreference = 'None' is set for the duration because
+#    Reset-SecretStore ignores -Confirm:$false in some module versions.
 # ---------------------------------------------------------------------------
 
-$authMode  = if ($RequireVaultPassword) { 'Password' } else { 'None' }
-# SecretStore writes its data here on all supported Windows versions.
-$storePath   = Join-Path $env:LOCALAPPDATA `
-    'Microsoft\PowerShell\secretmanagement\localstore'
-$storeConfig = Join-Path $storePath 'storeconfig'
+$authMode = if ($RequireVaultPassword) { 'Password' } else { 'None' }
 
 Write-Host "Configuring SecretStore (Authentication=$authMode) ..." -ForegroundColor Cyan
 
-# Read the config file directly rather than calling Get-SecretStoreConfiguration.
-# Any SecretStore cmdlet on a Password-protected store would prompt for the
-# vault password before we can change it - reading the file avoids that.
-# SecretStore encodes Authentication as an integer: 0 = None, 1 = Password.
+# --- Detect current auth mode ---
+
 $currentAuth = $null
-if (Test-Path $storeConfig) {
-    try {
-        $cfg = Get-Content $storeConfig -Raw | ConvertFrom-Json
-        $currentAuth = if ($cfg.Authentication -eq 0) { 'None' } else { 'Password' }
-    }
-    catch {
-        # Unreadable or unexpected format - treat as needing reinit.
+
+# Primary: ask the module directly. Returns immediately on None-auth stores.
+try {
+    $storeCfg    = Get-SecretStoreConfiguration -ErrorAction Stop
+    # .Authentication is 'None' or 'Password' (string) in newer module
+    # versions, or 0/1 (int) in older ones - normalise to string.
+    $authValue   = $storeCfg.Authentication
+    $currentAuth = if ($authValue -eq 0 -or "$authValue" -eq 'None') {
+        'None'
+    } else {
+        'Password'
     }
 }
+catch {
+    # Store not initialised yet - $currentAuth stays $null.
+    # (On Password-auth stores the cmdlet may also throw in some versions;
+    # the file-read fallback below handles that case.)
+}
+
+# Fallback: read the JSON config file directly. Used when the cmdlet above
+# threw on a Password-auth store that already exists.
+if ($null -eq $currentAuth) {
+    $storePath   = Join-Path $env:LOCALAPPDATA `
+        'Microsoft\PowerShell\secretmanagement\localstore'
+    $storeConfig = Join-Path $storePath 'storeconfig'
+
+    if (Test-Path $storeConfig) {
+        try {
+            $fileCfg     = Get-Content $storeConfig -Raw | ConvertFrom-Json
+            $authValue   = $fileCfg.Authentication
+            $currentAuth = if ($authValue -eq 0 -or "$authValue" -eq 'None') {
+                'None'
+            } else {
+                'Password'
+            }
+        }
+        catch {
+            # Unreadable or unexpected format - treat as needing reinit.
+        }
+    }
+}
+
+# --- Act on the detected state ---
 
 $needsInit = ($currentAuth -ne $authMode)
 
@@ -227,6 +233,8 @@ if ($needsInit) {
         # The store exists but is configured with the wrong auth mode.
         # We cannot change it without the vault password, and we must not
         # delete it - it may contain secrets unrelated to this script.
+        $storePath = Join-Path $env:LOCALAPPDATA `
+            'Microsoft\PowerShell\secretmanagement\localstore'
         throw (
             "SecretStore is configured with Authentication='$currentAuth' " +
             "but this script requires '$authMode'.`n`n" +
@@ -239,18 +247,24 @@ if ($needsInit) {
         )
     }
 
-    # Store does not exist yet - initialize it. SecretStore requires a
-    # password even when the target auth mode is None. Workaround:
-    # initialize with a known temp password (non-interactive since we
-    # supply it), then immediately switch to None auth using that same
-    # password to authorize the change. After the switch the password
-    # is no longer needed or stored.
+    # Store does not exist yet. Initialise with a temp password then
+    # immediately switch to the target auth mode.
+    # $ConfirmPreference = 'None' suppresses the Reset-SecretStore
+    # confirmation in module versions that ignore -Confirm:$false.
     $tempPass = ConvertTo-SecureString 'VmProvInit1!' -AsPlainText -Force
-    Reset-SecretStore -Authentication Password -Password $tempPass `
-        -Interaction None -Confirm:$false
-    Set-SecretStoreConfiguration -Authentication None -Password $tempPass `
-        -Interaction None -Confirm:$false
-    Write-Host "✓ SecretStore initialized." -ForegroundColor Green
+    $savedPref = $ConfirmPreference
+    try {
+        $ConfirmPreference = 'None'
+        Reset-SecretStore -Authentication Password -Password $tempPass `
+            -Interaction None -Confirm:$false
+        Set-SecretStoreConfiguration -Authentication $authMode `
+            -Password $tempPass -Interaction None -Confirm:$false
+    }
+    finally {
+        $ConfirmPreference = $savedPref
+    }
+    Write-Host "✓ SecretStore initialized (Authentication=$authMode)." `
+        -ForegroundColor Green
 }
 else {
     Write-Host "✓ SecretStore already configured (Authentication=$authMode)." `
@@ -293,7 +307,9 @@ Write-Host "✓ Secret stored." -ForegroundColor Green
 # ---------------------------------------------------------------------------
 
 $readBack = Get-Secret -Vault $vaultName -Name $secretName -AsPlainText
-$parsed   = $readBack | ConvertFrom-Json
+# @() for the same reason as in ConvertFrom-VmConfigJson: PS 5.1 unwraps
+# single-element arrays.
+$parsed   = @($readBack | ConvertFrom-Json)
 
 Write-Host (
     "✓ Round-trip verified - $($parsed.Count) VM definition(s) readable " +

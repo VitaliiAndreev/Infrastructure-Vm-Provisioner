@@ -22,6 +22,15 @@ See [BRIEF.md](BRIEF.md) for full project context.
 
 ---
 
+## Quick start
+
+```powershell
+# 1. Store config in the local vault (once per machine)
+.\hyper-v\ubuntu\setup-secrets.ps1 -ConfigFile C:\private\vm-config.json
+```
+
+---
+
 ## setup-secrets.ps1
 
 Run once per machine before `provision.ps1`.
