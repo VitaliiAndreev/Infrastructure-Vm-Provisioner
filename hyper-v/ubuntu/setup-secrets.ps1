@@ -141,19 +141,15 @@ Write-Host "✓ JSON validated - $($vmDefs.Count) VM definition(s) found." -Fore
 # ---------------------------------------------------------------------------
 # 3. Ensure NuGet provider is available
 #    PowerShellGet requires NuGet >= 2.8.5.201 to install modules from
-#    PSGallery. Bootstrap it silently so the script does not prompt.
+#    PSGallery. -ForceBootstrap suppresses the interactive prompt that
+#    PackageManagement shows when the provider is missing. The call is a
+#    no-op if a sufficient version is already installed.
 # ---------------------------------------------------------------------------
 
-$nuget = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
-if ($null -eq $nuget -or $nuget.Version -lt [Version]'2.8.5.201') {
-    Write-Host "Installing NuGet package provider ..." -ForegroundColor Cyan
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 `
-        -Scope CurrentUser -Force | Out-Null
-    Write-Host "✓ NuGet provider installed." -ForegroundColor Green
-}
-else {
-    Write-Host "✓ NuGet provider already present ($($nuget.Version))." -ForegroundColor Green
-}
+Write-Host "Ensuring NuGet package provider ..." -ForegroundColor Cyan
+Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 `
+    -Scope CurrentUser -Force -ForceBootstrap | Out-Null
+Write-Host "✓ NuGet provider ready." -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
 # 4. Install SecretManagement modules if not already present
