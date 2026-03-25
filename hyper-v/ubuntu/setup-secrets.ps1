@@ -17,7 +17,7 @@
 
     SECURITY NOTE: The -ConfigJson parameter accepts a raw JSON string.
     Avoid passing it inline on shared machines where process listings are
-    visible to other users — prefer -ConfigFile instead, pointing to a file
+    visible to other users - prefer -ConfigFile instead, pointing to a file
     outside the repo.
 
 .PARAMETER ConfigJson
@@ -34,7 +34,7 @@
     shared or less-trusted machines.
 
 .EXAMPLE
-    # Store config from a file (recommended — avoids secrets in shell history)
+    # Store config from a file (recommended - avoids secrets in shell history)
     .\setup-secrets.ps1 -ConfigFile C:\private\vm-config.json
 
 .EXAMPLE
@@ -104,7 +104,7 @@ if ($PSCmdlet.ParameterSetName -eq 'File') {
 
 # ---------------------------------------------------------------------------
 # 2. Validate JSON structure before touching the vault
-#    Fail fast — no point installing modules if the config is malformed.
+#    Fail fast - no point installing modules if the config is malformed.
 # ---------------------------------------------------------------------------
 
 try {
@@ -136,7 +136,7 @@ foreach ($vm in $vmDefs) {
     }
 }
 
-Write-Host "✓ JSON validated — $($vmDefs.Count) VM definition(s) found." -ForegroundColor Green
+Write-Host "✓ JSON validated - $($vmDefs.Count) VM definition(s) found." -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
 # 3. Install SecretManagement modules if not already present
@@ -163,7 +163,7 @@ foreach ($mod in $requiredModules) {
 # ---------------------------------------------------------------------------
 # 4. Configure SecretStore (first-time only)
 #    Authentication=None means the vault is unlocked automatically for the
-#    current Windows user — the AES-256 encryption key is derived from the
+#    current Windows user - the AES-256 encryption key is derived from the
 #    Windows user profile. No separate vault password is required unless
 #    -RequireVaultPassword was passed.
 #
@@ -176,7 +176,7 @@ $authMode = if ($RequireVaultPassword) { 'Password' } else { 'None' }
 
 try {
     $storeConfig = Get-SecretStoreConfiguration -ErrorAction Stop
-    # Vault already configured — warn if the auth mode differs from what
+    # Vault already configured - warn if the auth mode differs from what
     # was requested so the operator knows the setting was not changed.
     if ($storeConfig.Authentication -ne $authMode) {
         Write-Warning (
@@ -193,14 +193,14 @@ try {
     }
 }
 catch {
-    # Configuration does not exist yet — set it up now.
+    # Configuration does not exist yet - set it up now.
     Write-Host "Configuring SecretStore (Authentication=$authMode) ..." -ForegroundColor Cyan
     Set-SecretStoreConfiguration -Authentication $authMode -Interaction None -Confirm:$false
     Write-Host "✓ SecretStore configured." -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
-# 5. Register the vault (idempotent — skip if it already exists)
+# 6. Register the vault (idempotent - skip if it already exists)
 # ---------------------------------------------------------------------------
 
 $vaultName = 'VmProvisioner'
@@ -238,7 +238,7 @@ $readBack = Get-Secret -Vault $vaultName -Name $secretName -AsPlainText
 $parsed   = $readBack | ConvertFrom-Json
 
 Write-Host (
-    "✓ Round-trip verified — $($parsed.Count) VM definition(s) readable " +
+    "✓ Round-trip verified - $($parsed.Count) VM definition(s) readable " +
     "from vault."
 ) -ForegroundColor Green
 
