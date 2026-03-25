@@ -34,3 +34,7 @@ Work as a senior backend engineer and a solution architect in this repository.
 - Follow best practices - and tell the user what they are.
 - Always keep security in mind - and highlight them for the user.
 - Prefer minimal diffs over large refactors.
+
+### Code style
+
+- Don't use long dashes - user minus sign instead.
