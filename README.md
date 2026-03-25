@@ -5,7 +5,9 @@
 ## Index
 
 - [Overview](#overview)
+- [Quick start](#quick-start)
 - [setup-secrets.ps1](#setup-secretsps1)
+- [provision.ps1](#provisionps1)
 - [Repo structure](#repo-structure)
 
 ---
@@ -27,6 +29,9 @@ See [BRIEF.md](BRIEF.md) for full project context.
 ```powershell
 # 1. Store config in the local vault (once per machine)
 .\hyper-v\ubuntu\setup-secrets.ps1 -ConfigFile C:\private\vm-config.json
+
+# 2. Provision VMs (run as Administrator)
+.\hyper-v\ubuntu\provision.ps1
 ```
 
 ---
@@ -87,6 +92,18 @@ Run as Administrator after `setup-secrets.ps1` has stored the config.
 Reads `VmProvisionerConfig` from the vault and for each VM definition:
 
 1. Validates all required fields.
+2. Skips the entry if a Hyper-V VM with the same `vmName` already exists
+   (idempotent re-runs are safe).
+3. Aborts the entry if `ipAddress` responds to a ping (prevents static-IP
+   conflicts with existing machines).
+4. Downloads the Ubuntu cloud image (`.vhd.zip`) from the Ubuntu CDN into
+   `vhdPath` once per `ubuntuVersion`, converts it to `.vhdx`, and caches
+   it. Subsequent runs reuse the cached base image — no re-download.
+5. Copies the base image to a per-VM disk (`{vmName}.vhdx`) and resizes it
+   to `diskGB`.
+
+<!-- TODO: Steps 5-6 details added when cloud-init and VM creation
+     are implemented -->
 
 ---
 
