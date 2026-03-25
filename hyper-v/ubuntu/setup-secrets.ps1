@@ -161,6 +161,10 @@ $requiredModules = @(
     'Microsoft.PowerShell.SecretStore'
 )
 
+# Install all missing modules before importing any of them. Importing
+# SecretManagement before SecretStore is installed causes PowerShellGet to
+# warn that SecretManagement is "in use" when it tries to satisfy
+# SecretStore's dependency on it.
 foreach ($mod in $requiredModules) {
     if (-not (Get-Module -ListAvailable -Name $mod)) {
         Write-Host "Installing module: $mod ..." -ForegroundColor Cyan
@@ -170,46 +174,49 @@ foreach ($mod in $requiredModules) {
     else {
         Write-Host "✓ Module already present: $mod" -ForegroundColor Green
     }
+}
+
+foreach ($mod in $requiredModules) {
     Import-Module $mod -ErrorAction Stop
 }
 
 # ---------------------------------------------------------------------------
-# 5. Configure SecretStore (first-time only)
+# 5. Configure SecretStore
 #    Authentication=None means the vault is unlocked automatically for the
 #    current Windows user - the AES-256 encryption key is derived from the
 #    Windows user profile. No separate vault password is required unless
 #    -RequireVaultPassword was passed.
 #
-#    -Confirm:$false suppresses the interactive "are you sure?" prompt that
-#    SecretStore shows on first configuration, allowing the script to run
-#    non-interactively.
+#    IMPORTANT: Set-SecretStoreConfiguration must be the first SecretStore
+#    call made. If any other cmdlet (e.g. Get-SecretStoreConfiguration) runs
+#    first, SecretStore initializes itself with the default config (password
+#    required) and prompts interactively before we can override it.
+#
+#    -Interaction None ensures no prompts are shown.
+#    -Confirm:$false suppresses the "are you sure?" prompt.
+#
+#    On a fresh install this initializes the store. On a re-run with the same
+#    auth mode it is effectively a no-op. Switching from Password to None on
+#    an existing store requires the current vault password - we catch that
+#    and warn rather than failing hard.
 # ---------------------------------------------------------------------------
 
 $authMode = if ($RequireVaultPassword) { 'Password' } else { 'None' }
 
+Write-Host "Configuring SecretStore (Authentication=$authMode) ..." -ForegroundColor Cyan
 try {
-    $storeConfig = Get-SecretStoreConfiguration -ErrorAction Stop
-    # Vault already configured - warn if the auth mode differs from what
-    # was requested so the operator knows the setting was not changed.
-    if ($storeConfig.Authentication -ne $authMode) {
-        Write-Warning (
-            "SecretStore is already configured with Authentication=" +
-            "'$($storeConfig.Authentication)'. " +
-            "The requested mode '$authMode' was NOT applied to avoid " +
-            "disrupting existing secrets. Re-run Set-SecretStoreConfiguration " +
-            "manually if you need to change it."
-        )
-    }
-    else {
-        Write-Host "✓ SecretStore already configured (Authentication=$authMode)." `
-            -ForegroundColor Green
-    }
-}
-catch {
-    # Configuration does not exist yet - set it up now.
-    Write-Host "Configuring SecretStore (Authentication=$authMode) ..." -ForegroundColor Cyan
     Set-SecretStoreConfiguration -Authentication $authMode -Interaction None -Confirm:$false
     Write-Host "✓ SecretStore configured." -ForegroundColor Green
+}
+catch {
+    # This typically means the store already exists with a different auth
+    # mode and switching requires the current vault password. The existing
+    # configuration is left unchanged.
+    Write-Warning (
+        "Could not apply Authentication=$authMode to SecretStore: $_`n" +
+        "If the store was previously configured with a password, run " +
+        "Set-SecretStoreConfiguration manually to change it."
+    )
 }
 
 # ---------------------------------------------------------------------------
