@@ -5,6 +5,7 @@
 ## Index
 
 - [Overview](#overview)
+- [setup-secrets.ps1](#setup-secretsps1)
 - [Repo structure](#repo-structure)
 
 ---
@@ -18,6 +19,27 @@ default user configured via cloud-init. All parameters are stored in an
 encrypted local vault — nothing sensitive is committed to the repo.
 
 See [BRIEF.md](BRIEF.md) for full project context.
+
+---
+
+## setup-secrets.ps1
+
+Run once per machine before `provision.ps1`.
+
+```powershell
+# Recommended: read config from a file outside the repo
+.\setup-secrets.ps1 -ConfigFile C:\private\vm-config.json
+
+# Optional: require a vault-level password on top of Windows user scope
+.\setup-secrets.ps1 -ConfigFile C:\private\vm-config.json -RequireVaultPassword
+```
+
+Installs `Microsoft.PowerShell.SecretManagement` and
+`Microsoft.PowerShell.SecretStore` if missing, registers the `VmProvisioner`
+vault, validates the JSON, and stores it as the `VmProvisionerConfig` secret.
+Re-running safely updates the stored config.
+
+<!-- TODO: full JSON config reference added in Step 7 -->
 
 ---
 
