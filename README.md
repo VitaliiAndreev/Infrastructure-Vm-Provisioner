@@ -39,7 +39,31 @@ Installs `Microsoft.PowerShell.SecretManagement` and
 vault, validates the JSON, and stores it as the `VmProvisionerConfig` secret.
 Re-running safely updates the stored config.
 
-<!-- TODO: full JSON config reference added in Step 7 -->
+**Config file format** — a JSON array, one object per VM:
+
+```jsonc
+[
+  {
+    "vmName":        "ubuntu-01-ci",
+    "cpuCount":      2,
+    "ramGB":         4,
+    "diskGB":        40,
+    "ubuntuVersion": "24.04",
+    "username":      "u-01-admin",
+    "password":      "...",
+    "ipAddress":     "192.168.1.101",
+    "subnetMask":    "24",
+    "gateway":       "192.168.1.1",
+    "dns":           "8.8.8.8",
+    "vmConfigPath":  "D:\\Hyper-V\\Config",
+    "vhdPath":       "D:\\Hyper-V\\Disks"
+  }
+]
+```
+
+All fields are required. After first boot, connect via `ssh username@ipAddress`.
+
+<!-- TODO: full field descriptions added in Step 7 -->
 
 ---
 

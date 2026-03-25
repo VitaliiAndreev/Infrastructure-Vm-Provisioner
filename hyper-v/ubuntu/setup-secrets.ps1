@@ -6,7 +6,7 @@
 .DESCRIPTION
     Run this once per machine before running provision.ps1.
 
-    All VM parameters (names, passwords, SSH keys, IP addresses, etc.) are
+    All VM parameters (names, passwords, IP addresses, etc.) are
     stored in an AES-256-encrypted local vault scoped to your Windows user
     account. Nothing sensitive is ever written to the repository.
 
@@ -44,6 +44,33 @@
 .EXAMPLE
     # Enable vault password prompt in addition to Windows user scope
     .\setup-secrets.ps1 -ConfigFile C:\private\vm-config.json -RequireVaultPassword
+
+.NOTES
+    JSON CONFIG FORMAT
+
+    The config file must contain a JSON array, one object per VM:
+
+    [
+      {
+        "vmName":       "ubuntu-01-ci",   # Hyper-V VM name (must be unique)
+        "cpuCount":     2,                # Virtual CPU count
+        "ramGB":        4,                # RAM in GB
+        "diskGB":       40,               # OS disk size in GB
+        "ubuntuVersion":"24.04",          # Ubuntu LTS version (e.g. "24.04")
+        "username":     "u-01-admin",     # Default OS user created by cloud-init
+        "password":     "...",            # Password for that user (used for SSH)
+        "ipAddress":    "192.168.1.101",  # Static IP assigned inside the VM
+        "subnetMask":   "24",             # CIDR prefix length
+        "gateway":      "192.168.1.1",
+        "dns":          "8.8.8.8",
+        "vmConfigPath": "D:\\Hyper-V\\Config",  # Where VM config files are stored
+        "vhdPath":      "D:\\Hyper-V\\Disks"    # Where VM disk images are stored
+      }
+    ]
+
+    All fields are required. Multiple VM objects in the array are each
+    provisioned in turn. Connect to a VM after first boot via:
+        ssh username@ipAddress
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'File')]

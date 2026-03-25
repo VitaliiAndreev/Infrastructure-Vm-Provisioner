@@ -41,17 +41,6 @@ step has a clear home.
    `VmProvisionerConfig` secret.
 4. Prints a confirmation and advises the user to run `provision.ps1`.
 
-The JSON config gains an `sshPublicKey` field (optional — if omitted, SSH
-password auth is still enabled but key auth is unavailable):
-
-```json
-{
-  "vmName": "ubuntu-01-ci",
-  ...
-  "sshPublicKey": "ssh-ed25519 AAAA... user@host"
-}
-```
-
 **Why:** Decouples sensitive config from the repo. Needs to exist and be
 tested before `provision.ps1` can read from it.
 
@@ -125,9 +114,7 @@ graph TD
 - `user-data` covering:
   - OS user + hashed password
   - SSH server enabled (`openssh-server` installed via `packages:`)
-  - `ssh_authorized_keys` populated from `sshPublicKey` (if present)
-  - Password SSH auth enabled so the default user can always log in
-    even without a key (`ssh_pwauth: true`)
+  - Password SSH auth enabled (`ssh_pwauth: true`)
   - Netplan static IP config written under `/etc/netplan/`
 
 Then pack them into a FAT-formatted ISO (`seed.iso`) using
@@ -152,7 +139,6 @@ graph TD
         CloudInit -->|applies| NetPlan[netplan static IP]
         CloudInit -->|creates| OSUser[OS user + password]
         CloudInit -->|installs + enables| SSHD[openssh-server]
-        CloudInit -->|injects| SSHKey[authorized_keys]
     end
     User -->|ssh username@ipAddress| SSHD
 ```
