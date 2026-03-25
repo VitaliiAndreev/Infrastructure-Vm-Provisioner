@@ -178,7 +178,10 @@ graph TD
 ## Step 7 — README.md
 
 **What:** Root `README.md` covering:
-- Prerequisites (Hyper-V, PowerShell, modules, virtual switch).
+- Prerequisites (Hyper-V, PowerShell, modules, virtual switch) — note that
+  **PS 5.1 (ships with Windows 11) is sufficient**; PS 7 is recommended but
+  not required. State this explicitly so operators don't install PS 7
+  unnecessarily.
 - Quick start (setup-secrets → provision).
 - JSON config reference (all fields, types, example) — including
   `sshPublicKey`.
