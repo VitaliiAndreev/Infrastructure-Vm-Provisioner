@@ -37,6 +37,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\common.ps1"
+. "$PSScriptRoot\iso.ps1"
 
 # ---------------------------------------------------------------------------
 # 1. Ensure SecretManagement modules are loaded
@@ -332,8 +333,135 @@ foreach ($vm in $vmsToProvision) {
                -Name '_vhdxPath' -Value $vmDiskPath -Force
 }
 
-# TODO: Step 5 - cloud-init seed ISO generation (meta-data, user-data,
-#       netplan, pack into FAT ISO). Use $vm._vhdxPath (set above) and
-#       $vm.vmConfigPath as the output directory for the seed ISO.
+# ---------------------------------------------------------------------------
+# 6. Cloud-init seed ISO generation
+#
+#    cloud-init's NoCloud datasource reads from a filesystem volume labelled
+#    'cidata'. Three files are placed in the root of the ISO:
+#
+#      meta-data      - instance identity (instance-id, local-hostname).
+#      user-data      - cloud-config: OS user, SSH, installed packages.
+#      network-config - cloud-init network v2 format: static IP, gateway,
+#                       DNS. Kept separate from user-data so cloud-init's
+#                       network module processes it before other modules
+#                       that require network access (e.g. package install).
+#
+#    The ISO is placed in vm.vmConfigPath (separate from the OS disk in
+#    vm.vhdPath). Step 6 mounts it as a DVD drive; cloud-init reads it on
+#    first boot only — subsequent boots skip it because the instance state
+#    is already recorded in /var/lib/cloud/.
+#
+#    SECURITY - user-data contains vm.password in plaintext so cloud-init
+#    can hash it internally (plain_text_passwd). The ISO persists on the
+#    host after provisioning; delete it once the VM is running, or restrict
+#    read access to vm.vmConfigPath to the provisioning account only.
+# ---------------------------------------------------------------------------
+
+foreach ($vm in $vmsToProvision) {
+    Write-Host ""
+    Write-Host "--- Cloud-init ISO: $($vm.vmName) ---" -ForegroundColor Cyan
+
+    # Ensure the vmConfigPath directory exists.
+    if (-not (Test-Path -Path $vm.vmConfigPath -PathType Container)) {
+        New-Item -ItemType Directory -Path $vm.vmConfigPath -Force | Out-Null
+        Write-Host "  Created directory: $($vm.vmConfigPath)"
+    }
+
+    # ------------------------------------------------------------------
+    # meta-data
+    # instance-id must change if the instance is re-created from scratch;
+    # using vmName satisfies this for our one-VM-per-name model. It also
+    # sets the Linux hostname on first boot via local-hostname.
+    # ------------------------------------------------------------------
+    $metaData = @"
+instance-id: $($vm.vmName)
+local-hostname: $($vm.vmName)
+"@
+
+    # ------------------------------------------------------------------
+    # user-data (cloud-config)
+    #
+    # plain_text_passwd lets cloud-init hash the password internally,
+    # avoiding the need to pre-compute a sha512crypt hash on Windows.
+    # lock_passwd must be false — without it cloud-init locks the account
+    # after setting the password, blocking SSH password auth even when
+    # ssh_pwauth is true.
+    # Specifying users: without 'default' in the list intentionally omits
+    # the cloud image's built-in 'ubuntu' user; only our configured user
+    # is created.
+    # package_upgrade is false to keep the first boot fast; operators can
+    # run upgrades afterwards.
+    #
+    # Values that may contain YAML-special characters (colon, hash, quote)
+    # are wrapped in YAML double-quoted strings. Backslashes and double
+    # quotes within those strings are escaped below.
+    # ------------------------------------------------------------------
+    $yamlUsername = $vm.username -replace '\\', '\\' -replace '"', '\"'
+    $yamlPassword = $vm.password -replace '\\', '\\' -replace '"', '\"'
+
+    $userData = @"
+#cloud-config
+
+users:
+  - name: "$yamlUsername"
+    plain_text_passwd: "$yamlPassword"
+    lock_passwd: false
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [adm, cdrom, dip, plugdev, lxd]
+
+ssh_pwauth: true
+
+packages:
+  - openssh-server
+
+package_update: true
+package_upgrade: false
+"@
+
+    # ------------------------------------------------------------------
+    # network-config (cloud-init network configuration v2 / netplan)
+    #
+    # Matching on driver: hv_netvsc rather than a fixed interface name
+    # (eth0, enp0s*, etc.) because the kernel-assigned name varies across
+    # Ubuntu releases and Hyper-V generations. hv_netvsc is the driver for
+    # all Hyper-V synthetic NICs, so this match always hits the right NIC.
+    # ------------------------------------------------------------------
+    $networkConfig = @"
+version: 2
+ethernets:
+  eth0:
+    match:
+      driver: hv_netvsc
+    dhcp4: false
+    addresses:
+      - $($vm.ipAddress)/$($vm.subnetMask)
+    routes:
+      - to: default
+        via: $($vm.gateway)
+    nameservers:
+      addresses:
+        - $($vm.dns)
+"@
+
+    $seedIsoPath = Join-Path $vm.vmConfigPath "$($vm.vmName)-seed.iso"
+    Write-Host "  Writing: $seedIsoPath"
+
+    New-SeedIso -OutputPath $seedIsoPath -Files @{
+        'meta-data'      = $metaData
+        'user-data'      = $userData
+        'network-config' = $networkConfig
+    }
+
+    Write-Host "  ✓ Seed ISO ready: $seedIsoPath" -ForegroundColor Green
+
+    # Store the ISO path on the VM object for Step 6.
+    Add-Member -InputObject $vm -MemberType NoteProperty `
+               -Name '_seedIsoPath' -Value $seedIsoPath -Force
+}
+
 # TODO: Step 6 - VM creation (New-VM, attach ISO, Secure Boot, start).
-#       Use $vm._vhdxPath for the OS disk and the seed ISO from Step 5.
+#       Use $vm._vhdxPath for the OS disk and $vm._seedIsoPath for the
+#       DVD drive. After Start-VM, poll port 22 until SSH is reachable,
+#       then Remove-VMDvdDrive and Remove-Item the seed ISO to eliminate
+#       the plaintext-password exposure automatically.

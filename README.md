@@ -101,9 +101,12 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
    it. Subsequent runs reuse the cached base image — no re-download.
 5. Copies the base image to a per-VM disk (`{vmName}.vhdx`) and resizes it
    to `diskGB`.
+6. Generates a cloud-init seed ISO (`{vmName}-seed.iso`) in `vmConfigPath`
+   containing `meta-data`, `user-data`, and `network-config`. On first boot
+   cloud-init reads the ISO to create the OS user, enable SSH, and apply the
+   static IP — no interactive installer needed.
 
-<!-- TODO: Steps 5-6 details added when cloud-init and VM creation
-     are implemented -->
+<!-- TODO: Step 6 (VM creation) details added when implemented -->
 
 ---
 
@@ -114,7 +117,9 @@ Infrastructure-VM-Provisioner/
 ├── hyper-v/
 │   └── ubuntu/
 │       ├── provision.ps1       # Main provisioning script
-│       └── setup-secrets.ps1   # One-time vault setup
+│       ├── setup-secrets.ps1   # One-time vault setup
+│       ├── common.ps1          # Shared helpers (config parsing, secret display)
+│       └── iso.ps1             # Seed ISO creation (provision.ps1 only)
 ├── BRIEF.md
 └── README.md
 ```
