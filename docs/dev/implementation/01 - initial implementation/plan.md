@@ -153,12 +153,12 @@ sequenceDiagram
 ## Step 6 — provision.ps1: virtual switch and NAT
 
 **What:** Once, before any VM is created:
-1. If a switch named `VmProvisioner` already exists, skip creation (idempotent).
+1. If a switch named `VmLAN` already exists, skip creation (idempotent).
 2. `New-VMSwitch -SwitchType Internal` — creates a host-only virtual NIC;
    VMs on this switch can reach the host but not the physical network directly.
 3. Assign the gateway IP from config to the host-side virtual NIC
    (`New-NetIPAddress`), using `subnetMask` as the prefix length.
-4. If a NAT rule named `VmProvisionerNAT` already exists, skip creation.
+4. If a NAT rule named `VmLAN-NAT` already exists, skip creation.
 5. `New-NetNat` covering the same subnet — routes VM traffic out through the
    host's physical NIC so VMs can reach the internet (needed for cloud-init
    package installs on first boot).
@@ -167,7 +167,7 @@ sequenceDiagram
 access — no traffic leaves the host on the physical NIC unless NAT is added.
 The `gateway` and `subnetMask` fields already in the config supply all the
 information needed; no new config fields are required.
-The switch name `VmProvisioner` is fixed so operators know exactly what was
+The switch name `VmLAN` is fixed so operators know exactly what was
 created; it does not need to be configurable.
 
 ```mermaid
@@ -177,10 +177,10 @@ sequenceDiagram
     participant Host as Host NIC
     participant NAT as Windows NAT
 
-    P->>HV: New-VMSwitch VmProvisioner (Internal)
+    P->>HV: New-VMSwitch VmLAN (Internal)
     HV->>Host: creates virtual NIC (vEthernet)
     P->>Host: New-NetIPAddress gateway/subnetMask
-    P->>NAT: New-NetNat VmProvisionerNAT (subnet)
+    P->>NAT: New-NetNat VmLAN-NAT (subnet)
     Note over Host,NAT: VMs reach internet via host NAT
     Note over P,Host: Host reaches VMs via vEthernet IP
 ```

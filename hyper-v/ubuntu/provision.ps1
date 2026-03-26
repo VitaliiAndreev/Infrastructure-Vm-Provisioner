@@ -460,9 +460,130 @@ ethernets:
                -Name '_seedIsoPath' -Value $seedIsoPath -Force
 }
 
-# TODO: Step 6 - virtual switch and NAT setup. Create Internal switch
-#       'VmProvisioner' if absent, assign gateway IP to the host vNIC,
-#       create NetNat rule for the subnet. Idempotent.
+# ---------------------------------------------------------------------------
+# 7. Virtual switch and NAT setup
+#
+#    All VMs share one Internal switch named 'VmLAN'. An Internal
+#    switch creates a virtual NIC on the host (vEthernet (VmLAN))
+#    through which the host can SSH into the VMs. VMs cannot reach the
+#    physical network directly, but a NetNat rule routes their outbound
+#    traffic through the host's physical NIC — required for cloud-init's
+#    package installs on first boot.
+#
+#    Gateway and subnet are derived from the queued VMs' config. All VMs
+#    must share the same gateway and subnetMask: a single Internal switch
+#    maps to one subnet, so mixing subnets would give some VMs a wrong
+#    default route.
+# ---------------------------------------------------------------------------
+
+$firstVm = $vmsToProvision[0]
+
+foreach ($vm in $vmsToProvision) {
+    if ($vm.gateway    -ne $firstVm.gateway -or
+        $vm.subnetMask -ne $firstVm.subnetMask) {
+        throw (
+            "All VM definitions must share the same gateway and subnetMask " +
+            "— they will all be attached to the same Internal switch. " +
+            "Conflicting entries: '$($firstVm.vmName)' " +
+            "($($firstVm.gateway)/$($firstVm.subnetMask)) vs " +
+            "'$($vm.vmName)' ($($vm.gateway)/$($vm.subnetMask))."
+        )
+    }
+}
+
+$switchName   = 'VmLAN'
+$natName      = 'VmLAN-NAT'
+$gatewayIp    = $firstVm.gateway
+$prefixLength = [int]$firstVm.subnetMask
+
+# Derive the network address for the NAT prefix (e.g. 192.168.1.1/24
+# -> 192.168.1.0/24). Each byte of the gateway is masked with the
+# corresponding byte of the subnet mask built from the CIDR prefix.
+$gatewayBytes = [System.Net.IPAddress]::Parse($gatewayIp).GetAddressBytes()
+$maskBits     = '1' * $prefixLength + '0' * (32 - $prefixLength)
+$networkBytes = [byte[]](
+    ([Convert]::ToByte($maskBits.Substring( 0, 8), 2) -band $gatewayBytes[0]),
+    ([Convert]::ToByte($maskBits.Substring( 8, 8), 2) -band $gatewayBytes[1]),
+    ([Convert]::ToByte($maskBits.Substring(16, 8), 2) -band $gatewayBytes[2]),
+    ([Convert]::ToByte($maskBits.Substring(24, 8), 2) -band $gatewayBytes[3])
+)
+$natPrefix = "$([System.Net.IPAddress]::new($networkBytes))/$prefixLength"
+
+Write-Host ""
+Write-Host "--- Virtual switch: $switchName ---" -ForegroundColor Cyan
+
+# ------------------------------------------------------------------
+# Switch creation (idempotent)
+# ------------------------------------------------------------------
+$existingSwitch = Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue
+if ($null -ne $existingSwitch) {
+    # Guard against a pre-existing switch with the same name but the wrong
+    # type. An External switch would expose VMs directly on the physical
+    # network rather than the isolated internal LAN this script expects.
+    if ($existingSwitch.SwitchType -ne 'Internal') {
+        throw (
+            "A switch named '$switchName' already exists but is type " +
+            "'$($existingSwitch.SwitchType)', expected 'Internal'. " +
+            "Rename or remove it before running this script."
+        )
+    }
+    Write-Host "  Switch '$switchName' already exists - skipping." `
+        -ForegroundColor Green
+}
+else {
+    Write-Host "  Creating Internal switch '$switchName' ..."
+    New-VMSwitch -Name $switchName -SwitchType Internal | Out-Null
+    Write-Host "  ✓ Switch created." -ForegroundColor Green
+}
+
+# ------------------------------------------------------------------
+# Host vNIC IP assignment (idempotent)
+# After New-VMSwitch, Windows creates a host adapter named
+# 'vEthernet (VmProvisioner)'. Assigning the gateway IP to it puts
+# the host on the same subnet as the VMs, enabling SSH from host.
+# ------------------------------------------------------------------
+$hostAdapter = Get-NetAdapter |
+    Where-Object { $_.Name -eq "vEthernet ($switchName)" }
+if ($null -eq $hostAdapter) {
+    throw "Host virtual NIC 'vEthernet ($switchName)' not found."
+}
+
+$existingIp = Get-NetIPAddress `
+    -InterfaceIndex $hostAdapter.InterfaceIndex `
+    -AddressFamily IPv4 `
+    -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -eq $gatewayIp }
+
+if ($null -ne $existingIp) {
+    Write-Host "  Host vNIC already has IP $gatewayIp - skipping." `
+        -ForegroundColor Green
+}
+else {
+    Write-Host "  Assigning $gatewayIp/$prefixLength to host vNIC ..."
+    New-NetIPAddress `
+        -InterfaceIndex $hostAdapter.InterfaceIndex `
+        -IPAddress      $gatewayIp `
+        -PrefixLength   $prefixLength | Out-Null
+    Write-Host "  ✓ Host vNIC configured." -ForegroundColor Green
+}
+
+# ------------------------------------------------------------------
+# NAT rule (idempotent)
+# Routes VM traffic out through the host's physical NIC so VMs can
+# reach the internet. Required for cloud-init package installs.
+# ------------------------------------------------------------------
+$existingNat = Get-NetNat -Name $natName -ErrorAction SilentlyContinue
+if ($null -ne $existingNat) {
+    Write-Host "  NAT rule '$natName' already exists - skipping." `
+        -ForegroundColor Green
+}
+else {
+    Write-Host "  Creating NAT rule for $natPrefix ..."
+    New-NetNat -Name $natName `
+               -InternalIPInterfaceAddressPrefix $natPrefix | Out-Null
+    Write-Host "  ✓ NAT rule created ($natPrefix)." -ForegroundColor Green
+}
+
 # TODO: Step 7 - VM creation (New-VM, attach ISO, Secure Boot, start).
 #       Use $vm._vhdxPath for the OS disk and $vm._seedIsoPath for the
 #       DVD drive. After Start-VM, poll port 22 until SSH is reachable,

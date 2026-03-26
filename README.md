@@ -49,8 +49,8 @@ Run once per machine before `provision.ps1`.
 ```
 
 Installs `Microsoft.PowerShell.SecretManagement` and
-`Microsoft.PowerShell.SecretStore` if missing, registers the `VmProvisioner`
-vault, validates the JSON, and stores it as the `VmProvisionerConfig` secret.
+`Microsoft.PowerShell.SecretStore` if missing, registers the `VmLAN`
+vault, validates the JSON, and stores it as the `VmLANConfig` secret.
 Re-running safely updates the stored config.
 
 **Config file format** — a JSON array, one object per VM:
@@ -89,7 +89,7 @@ Run as Administrator after `setup-secrets.ps1` has stored the config.
 .\provision.ps1
 ```
 
-Reads `VmProvisionerConfig` from the vault and for each VM definition:
+Reads `VmLANConfig` from the vault and for each VM definition:
 
 1. Validates all required fields.
 2. Skips the entry if a Hyper-V VM with the same `vmName` already exists
@@ -105,6 +105,10 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
    containing `meta-data`, `user-data`, and `network-config`. On first boot
    cloud-init reads the ISO to create the OS user, enable SSH, and apply the
    static IP — no interactive installer needed.
+7. Creates a Hyper-V Internal switch named `VmLAN` (if absent),
+   assigns the `gateway` IP to the host-side virtual NIC, and adds a
+   `New-NetNat` rule for the subnet so VMs can reach the internet through
+   the host. The host reaches VMs at their static IPs via the same vNIC.
 
 <!-- TODO: Step 6 (VM creation) details added when implemented -->
 
