@@ -7,8 +7,9 @@
 - [Step 3 — provision.ps1: vault read + validation](#step-3--provisionps1-vault-read--validation)
 - [Step 4 — provision.ps1: disk image acquisition](#step-4--provisionps1-disk-image-acquisition)
 - [Step 5 — provision.ps1: cloud-init seed ISO](#step-5--provisionps1-cloud-init-seed-iso)
-- [Step 6 — provision.ps1: VM creation](#step-6--provisionps1-vm-creation)
-- [Step 7 — README.md](#step-7--readmemd)
+- [Step 6 — provision.ps1: virtual switch and NAT](#step-6--provisionps1-virtual-switch-and-nat)
+- [Step 7 — provision.ps1: VM creation](#step-7--provisionps1-vm-creation)
+- [Step 8 — README.md](#step-8--readmemd)
 
 ---
 
@@ -149,7 +150,44 @@ sequenceDiagram
 
 ---
 
-## Step 6 — provision.ps1: VM creation
+## Step 6 — provision.ps1: virtual switch and NAT
+
+**What:** Once, before any VM is created:
+1. If a switch named `VmProvisioner` already exists, skip creation (idempotent).
+2. `New-VMSwitch -SwitchType Internal` — creates a host-only virtual NIC;
+   VMs on this switch can reach the host but not the physical network directly.
+3. Assign the gateway IP from config to the host-side virtual NIC
+   (`New-NetIPAddress`), using `subnetMask` as the prefix length.
+4. If a NAT rule named `VmProvisionerNAT` already exists, skip creation.
+5. `New-NetNat` covering the same subnet — routes VM traffic out through the
+   host's physical NIC so VMs can reach the internet (needed for cloud-init
+   package installs on first boot).
+
+**Why:** An Internal switch is the correct Hyper-V type for host-to-VM-only
+access — no traffic leaves the host on the physical NIC unless NAT is added.
+The `gateway` and `subnetMask` fields already in the config supply all the
+information needed; no new config fields are required.
+The switch name `VmProvisioner` is fixed so operators know exactly what was
+created; it does not need to be configurable.
+
+```mermaid
+sequenceDiagram
+    participant P as provision.ps1
+    participant HV as Hyper-V
+    participant Host as Host NIC
+    participant NAT as Windows NAT
+
+    P->>HV: New-VMSwitch VmProvisioner (Internal)
+    HV->>Host: creates virtual NIC (vEthernet)
+    P->>Host: New-NetIPAddress gateway/subnetMask
+    P->>NAT: New-NetNat VmProvisionerNAT (subnet)
+    Note over Host,NAT: VMs reach internet via host NAT
+    Note over P,Host: Host reaches VMs via vEthernet IP
+```
+
+---
+
+## Step 7 — provision.ps1: VM creation
 
 **What:** For each validated VM entry:
 1. `New-VM` with the correct generation (Gen 2), memory, CPU, and vhd path.
@@ -191,7 +229,7 @@ sequenceDiagram
 
 ---
 
-## Step 7 — README.md
+## Step 8 — README.md
 
 **What:** Root `README.md` covering:
 - Prerequisites (Hyper-V, PowerShell, modules, virtual switch) — note that

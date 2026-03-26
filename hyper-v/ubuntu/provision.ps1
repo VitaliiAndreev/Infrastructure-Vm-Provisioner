@@ -460,7 +460,10 @@ ethernets:
                -Name '_seedIsoPath' -Value $seedIsoPath -Force
 }
 
-# TODO: Step 6 - VM creation (New-VM, attach ISO, Secure Boot, start).
+# TODO: Step 6 - virtual switch and NAT setup. Create Internal switch
+#       'VmProvisioner' if absent, assign gateway IP to the host vNIC,
+#       create NetNat rule for the subnet. Idempotent.
+# TODO: Step 7 - VM creation (New-VM, attach ISO, Secure Boot, start).
 #       Use $vm._vhdxPath for the OS disk and $vm._seedIsoPath for the
 #       DVD drive. After Start-VM, poll port 22 until SSH is reachable,
 #       then Remove-VMDvdDrive and Remove-Item the seed ISO to eliminate
