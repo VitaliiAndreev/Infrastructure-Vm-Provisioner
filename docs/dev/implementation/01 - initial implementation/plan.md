@@ -128,19 +128,23 @@ SSH must be configured here — the cloud image has `openssh-server` disabled
 by default and the port is not open until cloud-init enables it.
 
 ```mermaid
-graph TD
-    subgraph Host["Windows Host"]
-        P[provision.ps1] -->|render templates| CI[cloud-init files]
-        CI -->|meta-data + user-data| ISO[seed.iso]
-        ISO -->|stored in vmConfigPath| LocalDisk[(vmConfigPath)]
-    end
-    subgraph VM["VM — first boot"]
-        CloudInit[cloud-init] -->|reads| ISO
-        CloudInit -->|applies| NetPlan[netplan static IP]
-        CloudInit -->|creates| OSUser[OS user + password]
-        CloudInit -->|installs + enables| SSHD[openssh-server]
-    end
-    User -->|ssh username@ipAddress| SSHD
+sequenceDiagram
+    participant P as provision.ps1
+    participant Disk as vmConfigPath
+    participant CI as cloud-init
+    participant VM as Ubuntu VM
+    participant User
+
+    P->>Disk: write meta-data
+    P->>Disk: write user-data
+    P->>Disk: write network-config
+    P->>Disk: New-SeedIso -> seed.iso
+    Note over CI,VM: first boot (Step 6)
+    CI->>Disk: reads seed.iso
+    CI->>VM: creates OS user + hashes password
+    CI->>VM: applies netplan static IP
+    CI->>VM: installs + enables openssh-server
+    User->>VM: ssh username@ipAddress
 ```
 
 ---
@@ -154,23 +158,35 @@ graph TD
    (required for Ubuntu Gen 2).
 4. Connect to the specified virtual switch.
 5. `Start-VM`.
-6. Emit status output.
+6. Poll TCP port 22 on `ipAddress` until SSH is reachable (cloud-init done).
+7. Detach the DVD drive (`Remove-VMDvdDrive`) and delete the seed ISO file.
+8. Emit status output.
 
 **Why:** This is the final assembly step — all prior steps feed into it.
 Kept separate so the VM-creation logic is reviewable independently.
+Deleting the seed ISO in the script (rather than leaving it to the operator)
+removes the plaintext-password exposure automatically — no manual cleanup step.
 
 ```mermaid
-graph TD
-    subgraph Host["Windows Host"]
-        P[provision.ps1]
-        P -->|New-VM| HyperV[Hyper-V]
-        P -->|Add-VMDvdDrive seed.iso| HyperV
-        P -->|Set-VMFirmware Secure Boot| HyperV
-        P -->|Connect-VMNetworkAdapter| Switch[Virtual Switch]
-        P -->|Start-VM| HyperV
-        HyperV -->|boots| VM[Ubuntu VM]
-        VM -->|reads seed.iso| CloudInit[cloud-init]
+sequenceDiagram
+    participant P as provision.ps1
+    participant HV as Hyper-V
+    participant VM as Ubuntu VM
+    participant CI as cloud-init
+
+    P->>HV: New-VM (Gen 2, CPU, RAM, vhd)
+    P->>HV: Add-VMDvdDrive seed.iso
+    P->>HV: Set-VMFirmware (Secure Boot: MicrosoftUEFI)
+    P->>HV: Connect-VMNetworkAdapter -> vSwitch
+    P->>HV: Start-VM
+    HV->>VM: boots
+    VM->>CI: first boot triggers cloud-init
+    CI-->>VM: user, SSH, network configured
+    loop poll port 22
+        P->>VM: TCP :22
     end
+    P->>HV: Remove-VMDvdDrive
+    P->>P: Remove-Item seed.iso
 ```
 
 ---
