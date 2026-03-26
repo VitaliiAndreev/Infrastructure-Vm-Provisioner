@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:cloud-images.ubuntu.com)"
+      "WebFetch(domain:cloud-images.ubuntu.com)",
+      "WebSearch"
     ]
   }
 }
