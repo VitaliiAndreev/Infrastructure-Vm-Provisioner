@@ -1,0 +1,14 @@
+# Claude Code local settings (machine-specific permission overrides)
+.claude/settings.local.json
+
+# VM disk images and archives — large binaries, never committed
+*.vhd
+*.vhdx
+*.vhd.tar.gz
+*.iso
+
+# Sentinel files written by provision.ps1 alongside cached base images
+*.nocloud-patched
+
+# Extraction scratch directories created during base image download
+_extract_*/
