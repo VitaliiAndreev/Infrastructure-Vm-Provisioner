@@ -14,11 +14,14 @@
 
 ## Overview
 
+General-purpose, reusable Windows scripting tooling for automated Hyper-V VM
+provisioning. Not specific to any single project — intended to be consumed by
+other projects that need self-hosted infrastructure.
+
 Automates creation of Hyper-V VMs on Windows 11, with Ubuntu installed and a
 default user configured via cloud-init. All parameters are stored in an
-encrypted local vault — nothing sensitive is committed to the repo.
-
-See [BRIEF.md](BRIEF.md) for full project context.
+AES-256 encrypted local vault scoped to the Windows user account — nothing
+sensitive is committed to the repo.
 
 ---
 
@@ -145,10 +148,19 @@ Infrastructure-VM-Provisioner/
 │       ├── setup-secrets.ps1   # One-time vault setup
 │       ├── common.ps1          # Shared helpers (config parsing, secret display)
 │       └── iso.ps1             # Seed ISO creation (provision.ps1 only)
-├── BRIEF.md
 └── README.md
 ```
 
 Each scenario follows the `hypervisor/guest-os/` convention. Future scenarios
 (e.g. `hyper-v/windows-server/`, `vmware/ubuntu/`) extend the tree without
-changing the root structure.
+changing the root structure. Each scenario folder is self-contained — its own
+scripts, its own secrets setup, its own README if needed.
+
+**Recommended specs for a self-hosted GitHub Actions runner:**
+
+| Resource | Value  | Reasoning                                                                          |
+|----------|--------|------------------------------------------------------------------------------------|
+| vCPU     | 2      | Realistic minimum with Docker; stack multiple VMs on a well-resourced host         |
+| RAM      | 4 GB   | Leaves headroom for 6–7 VMs on a 64 GB host                                       |
+| Disk     | 40 GB  | Covers Ubuntu base (~5 GB), runner agent, Docker image cache, and workspace        |
+| OS       | 24.04  | Current LTS; matches the `ubuntu-24.04` GitHub-hosted runner label for parity     |
