@@ -14,8 +14,6 @@
 
 ## Overview
 
-<!-- TODO: expand in Step 7 -->
-
 Automates creation of Hyper-V VMs on Windows 11, with Ubuntu installed and a
 default user configured via cloud-init. All parameters are stored in an
 encrypted local vault — nothing sensitive is committed to the repo.
@@ -25,6 +23,10 @@ See [BRIEF.md](BRIEF.md) for full project context.
 ---
 
 ## Quick start
+
+**Prerequisites:** Windows 11 with Hyper-V enabled, PowerShell 5.1+, and
+Administrator privileges. WSL2 is installed automatically by `provision.ps1`
+on first run if not already present (a reboot may be required).
 
 ```powershell
 # 1. Store config in the local vault (once per machine)
@@ -49,8 +51,8 @@ Run once per machine before `provision.ps1`.
 ```
 
 Installs `Microsoft.PowerShell.SecretManagement` and
-`Microsoft.PowerShell.SecretStore` if missing, registers the `VmLAN`
-vault, validates the JSON, and stores it as the `VmLANConfig` secret.
+`Microsoft.PowerShell.SecretStore` if missing, registers the `VmProvisioner`
+vault, validates the JSON, and stores it as the `VmProvisionerConfig` secret.
 Re-running safely updates the stored config.
 
 **Config file format** — a JSON array, one object per VM:
@@ -77,7 +79,21 @@ Re-running safely updates the stored config.
 
 All fields are required. After first boot, connect via `ssh username@ipAddress`.
 
-<!-- TODO: full field descriptions added in Step 7 -->
+| Field           | Type   | Description                                        |
+|-----------------|--------|----------------------------------------------------|
+| `vmName`        | string | Name in Hyper-V and as the VM's hostname           |
+| `cpuCount`      | int    | Number of virtual processors                       |
+| `ramGB`         | int    | RAM in GB (static allocation)                      |
+| `diskGB`        | int    | OS disk size in GB                                 |
+| `ubuntuVersion` | string | Ubuntu release, e.g. `"24.04"`                     |
+| `username`      | string | OS user created by cloud-init on first boot        |
+| `password`      | string | Password for that user (plain text in vault only)  |
+| `ipAddress`     | string | Static IPv4 address assigned inside the VM         |
+| `subnetMask`    | string | CIDR prefix length, e.g. `"24"`                    |
+| `gateway`       | string | Default gateway — also assigned to the host vNIC   |
+| `dns`           | string | DNS server IP                                      |
+| `vmConfigPath`  | string | Windows path where seed ISO is written             |
+| `vhdPath`       | string | Windows path where VHDX files are stored           |
 
 ---
 
@@ -89,16 +105,19 @@ Run as Administrator after `setup-secrets.ps1` has stored the config.
 .\provision.ps1
 ```
 
-Reads `VmLANConfig` from the vault and for each VM definition:
+Reads `VmProvisionerConfig` from the vault and for each VM definition:
 
 1. Validates all required fields.
 2. Skips the entry if a Hyper-V VM with the same `vmName` already exists
    (idempotent re-runs are safe).
 3. Aborts the entry if `ipAddress` responds to a ping (prevents static-IP
    conflicts with existing machines).
-4. Downloads the Ubuntu cloud image (`.vhd.zip`) from the Ubuntu CDN into
-   `vhdPath` once per `ubuntuVersion`, converts it to `.vhdx`, and caches
-   it. Subsequent runs reuse the cached base image — no re-download.
+4. Downloads the Ubuntu cloud image (`.vhd.tar.gz`) from the Ubuntu CDN into
+   `vhdPath` once per `ubuntuVersion`, converts it to `.vhdx`, and caches it.
+   On first download it also patches the base image via WSL2 to enable the
+   NoCloud cloud-init datasource (required for Hyper-V — the Azure image ships
+   with Azure-only datasource config). Subsequent runs reuse the cached,
+   patched base image — no re-download or re-patch.
 5. Copies the base image to a per-VM disk (`{vmName}.vhdx`) and resizes it
    to `diskGB`.
 6. Generates a cloud-init seed ISO (`{vmName}-seed.iso`) in `vmConfigPath`
@@ -109,8 +128,10 @@ Reads `VmLANConfig` from the vault and for each VM definition:
    assigns the `gateway` IP to the host-side virtual NIC, and adds a
    `New-NetNat` rule for the subnet so VMs can reach the internet through
    the host. The host reaches VMs at their static IPs via the same vNIC.
-
-<!-- TODO: Step 6 (VM creation) details added when implemented -->
+8. Creates each VM (Gen 2, static RAM, VHDX from step 5), sets Secure Boot
+   to `MicrosoftUEFICertificateAuthority` (required for Ubuntu), attaches
+   the seed ISO, connects to `VmLAN`, and starts the VM. Polls port 22
+   until cloud-init finishes, then detaches and deletes the seed ISO.
 
 ---
 

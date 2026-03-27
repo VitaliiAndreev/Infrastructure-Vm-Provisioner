@@ -86,24 +86,53 @@ graph TD
 ## Step 4 — provision.ps1: disk image acquisition
 
 **What:** For each VM entry that passes validation:
-1. Derive the Ubuntu `.vhdx` download URL from `ubuntuVersion`.
+1. Derive the Ubuntu download URL from `ubuntuVersion`. Ubuntu 22.04+
+   only ships a VHD in the Azure variant (`-azure.vhd.tar.gz`); the
+   generic `.vhd.zip` is not available for those releases.
 2. If the base `.vhdx` already exists in `vhdPath`, skip download.
-3. Otherwise download it (with progress output).
-4. Copy (not move) the base image to a per-VM differencing or flat copy
-   so the base stays reusable.
+3. Otherwise: download the `.tar.gz`, extract with `tar.exe`, copy to
+   remove the NTFS sparse attribute (`Convert-VHD` rejects sparse
+   inputs), convert to `.vhdx`, delete the archive and extract dir.
+4. Patch the base `.vhdx` once via WSL2 (`wsl --mount`) to override the
+   Azure-only datasource restriction — see note below.
+5. Copy (not move) the patched base image to a per-VM flat copy so the
+   base stays reusable; resize to `diskGB`.
 
-**Why:** Downloading a multi-GB image on every run would be wasteful; caching
-the base image makes repeated provisioning fast.
+**Why:** Downloading a multi-GB image on every run would be wasteful;
+caching the base image makes repeated provisioning fast.
+
+**Note — datasource patch (step 4):** The Ubuntu Azure cloud image ships
+with `datasource_list: [ Azure ]` in `/etc/cloud/cloud.cfg.d/90_dpkg.cfg`.
+On local Hyper-V there is no Azure IMDS, so cloud-init falls back to
+`None` and never reads the seed ISO — the VM gets no static IP, no user,
+and SSH is not enabled. The patch writes a higher-priority override,
+`99-nocloud.cfg`, into the same directory inside the VHDX, enabling the
+`NoCloud` datasource. The patch runs once per base image and is tracked
+by a sentinel file (`.nocloud-patched`) so re-runs skip it.
+
+**Implementation detail:** Uses `wsl --mount --bare` (Windows 11 21H2+)
+to attach the VHDX as a raw block device (`/dev/sdX`) inside the WSL2
+kernel. A shell script then iterates partition devices, mounts each as
+ext4, identifies root by `/etc/os-release`, writes the override, calls
+`sync`, and unmounts. The script is delivered to WSL via base64 — passing
+multi-word scripts through `wsl.exe -c` argument quoting is unreliable on
+PowerShell 5.1, and piping adds a BOM; base64 is pure alphanumeric and
+avoids both problems.
 
 ```mermaid
 graph TD
     subgraph Host["Windows Host"]
         P[provision.ps1] -->|check exists| LocalDisk[(vhdPath)]
         LocalDisk -->|missing| DL[Invoke-WebRequest]
-        DL -->|.vhdx| LocalDisk
-        LocalDisk -->|Copy-Item per VM| VMDisk[(per-VM .vhdx)]
+        DL -->|.vhd.tar.gz| LocalDisk
+        LocalDisk -->|tar + Copy-Item + Convert-VHD| BaseVHDX[(base .vhdx)]
+        BaseVHDX -->|wsl --mount patch| BaseVHDX
+        BaseVHDX -->|Copy-Item + Resize-VHD per VM| VMDisk[(per-VM .vhdx)]
     end
     DL -->|URL derived from ubuntuVersion| Ubuntu[Ubuntu releases CDN]
+    subgraph WSL2["WSL2"]
+        BaseVHDX -->|mount ext4 partition| Patch[99-nocloud.cfg written]
+    end
 ```
 
 ---
