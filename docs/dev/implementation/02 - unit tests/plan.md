@@ -6,6 +6,7 @@ See [problem.md](problem.md) for context and scope.
 - [Step 1 - Run-Tests.ps1](#step-1---run-testsps1)
 - [Step 2 - Get-SanitizedVmDisplay tests](#step-2---get-sanitizedvmdisplay-tests)
 - [Step 3 - ConvertFrom-VmConfigJson tests](#step-3---convertfrom-vmconfigjson-tests)
+- [Step 4 - CI workflow](#step-4---ci-workflow)
 
 ---
 
@@ -108,4 +109,30 @@ graph TD
     T3 -->|dot-sources| C
     T3 -->|stubs| ACF
     T3 -->|exercises| FJ
+```
+
+---
+
+## Step 4 - CI workflow
+
+**Why:** Tests only have value if they run automatically on every push and
+pull request. Mirrors the Infrastructure.Secrets workflow so both repos have
+consistent CI.
+
+Add `.github/workflows/ci.yml`. Runs `Run-Tests.ps1` on both PowerShell 5.1
+(`shell: powershell`) and PowerShell 7 (`shell: pwsh`) to catch
+version-specific regressions. Uploads `TestResults.xml` as an artifact on
+both pass and fail.
+
+```mermaid
+graph TD
+    subgraph GitHub Actions
+        PR[push / pull_request]
+        PR --> J1[ci-ps51 - windows-latest - powershell]
+        PR --> J2[ci-ps7 - windows-latest - pwsh]
+        J1 -->|runs| RT[Run-Tests.ps1]
+        J2 -->|runs| RT
+        J1 -->|uploads| A1[TestResults.xml artifact]
+        J2 -->|uploads| A2[TestResults.xml artifact]
+    end
 ```
