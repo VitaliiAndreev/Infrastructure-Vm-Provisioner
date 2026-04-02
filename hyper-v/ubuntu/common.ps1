@@ -84,26 +84,13 @@ function ConvertFrom-VmConfigJson {
         # properties created by ConvertFrom-Json in PS 5.1 and PS 7.
         # PSObject.Properties-based lookups can return unexpected results in
         # PS 5.1 depending on how the object was constructed.
-        $memberNames = (Get-Member -InputObject $vm -MemberType NoteProperty).Name
-
-        foreach ($field in $requiredFields) {
-            if ($memberNames -notcontains $field) {
-                throw (
-                    "VM definition is missing required field '$field': " +
-                    "$(Get-SanitizedVmDisplay -Vm $vm | ConvertTo-Json -Depth 1)"
-                )
-            }
-
-            # Cast to [string] before IsNullOrWhiteSpace: numeric fields
-            # (cpuCount, ramGB, etc.) are [int] in PS 5.1 and the method
-            # requires [string].
-            if ([string]::IsNullOrWhiteSpace([string]($vm.$field))) {
-                throw (
-                    "VM definition has empty required field '$field': " +
-                    "$(Get-SanitizedVmDisplay -Vm $vm | ConvertTo-Json -Depth 1)"
-                )
-            }
-        }
+        # Assert-ConfigFields is provided by Infrastructure.Secrets (>= 1.1.0).
+        # It handles the PS 5.1-compatible Get-Member loop and IsNullOrWhiteSpace
+        # cast so this file does not need to duplicate that logic.
+        Assert-ConfigFields `
+            -Object  $vm `
+            -Fields  $requiredFields `
+            -Context "VM '$(if ($vm.PSObject.Properties['vmName']) { $vm.vmName } else { '(unknown)' })'"`
 
         # Output each validated VM object individually to the pipeline.
         # Callers collect via @(ConvertFrom-VmConfigJson ...).

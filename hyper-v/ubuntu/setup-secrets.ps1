@@ -42,10 +42,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Install Infrastructure.Secrets from PSGallery if not already present.
-# To update an existing installation: Update-Module Infrastructure.Secrets
-if (-not (Get-Module -ListAvailable -Name Infrastructure.Secrets)) {
-    Write-Host "Installing Infrastructure.Secrets from PSGallery ..." -ForegroundColor Cyan
+# Install or update Infrastructure.Secrets from PSGallery.
+# The minimum version is pinned here - bump it when a newer feature is required.
+$requiredVersion = [Version]'1.1.0'
+$installed = (Get-Module -ListAvailable -Name Infrastructure.Secrets |
+    Sort-Object Version -Descending | Select-Object -First 1).Version
+
+if (-not $installed -or $installed -lt $requiredVersion) {
+    Write-Host "Installing Infrastructure.Secrets >= $requiredVersion from PSGallery ..." `
+        -ForegroundColor Cyan
     Install-Module Infrastructure.Secrets -Scope CurrentUser -Force
 }
 Import-Module Infrastructure.Secrets -Force -ErrorAction Stop
