@@ -5,6 +5,7 @@
 .NOTES
     Do not run this file directly. It is intended to be dot-sourced:
         . "$PSScriptRoot\common.ps1"
+    Infrastructure.Common must be imported before dot-sourcing this file.
 #>
 
 # Fields whose values must never appear in diagnostic output or error messages.
@@ -84,13 +85,13 @@ function ConvertFrom-VmConfigJson {
         # properties created by ConvertFrom-Json in PS 5.1 and PS 7.
         # PSObject.Properties-based lookups can return unexpected results in
         # PS 5.1 depending on how the object was constructed.
-        # Assert-ConfigFields is provided by Infrastructure.Secrets (>= 1.1.0).
+        # Assert-RequiredProperties is provided by Infrastructure.Common.
         # It handles the PS 5.1-compatible Get-Member loop and IsNullOrWhiteSpace
         # cast so this file does not need to duplicate that logic.
-        Assert-ConfigFields `
-            -Object  $vm `
-            -Fields  $requiredFields `
-            -Context "VM '$(if ($vm.PSObject.Properties['vmName']) { $vm.vmName } else { '(unknown)' })'"`
+        Assert-RequiredProperties `
+            -Object      $vm `
+            -Properties  $requiredFields `
+            -Context     "VM '$(if ($vm.PSObject.Properties['vmName']) { $vm.vmName } else { '(unknown)' })'"`
 
         # Output each validated VM object individually to the pipeline.
         # Callers collect via @(ConvertFrom-VmConfigJson ...).
