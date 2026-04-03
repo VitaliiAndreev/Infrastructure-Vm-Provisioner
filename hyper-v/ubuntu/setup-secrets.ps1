@@ -45,10 +45,10 @@ $ErrorActionPreference = 'Stop'
 # Install or update Infrastructure.Secrets from PSGallery.
 # The minimum version is pinned here - bump it when a newer feature is required.
 $requiredVersion = [Version]'1.1.0'
-$installed = (Get-Module -ListAvailable -Name Infrastructure.Secrets |
-    Sort-Object Version -Descending | Select-Object -First 1).Version
+$installedModule = Get-Module -ListAvailable -Name Infrastructure.Secrets |
+    Sort-Object Version -Descending | Select-Object -First 1
 
-if (-not $installed -or $installed -lt $requiredVersion) {
+if (-not $installedModule -or $installedModule.Version -lt $requiredVersion) {
     Write-Host "Installing Infrastructure.Secrets >= $requiredVersion from PSGallery ..." `
         -ForegroundColor Cyan
     Install-Module Infrastructure.Secrets -Scope CurrentUser -Force
