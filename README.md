@@ -30,6 +30,8 @@ sensitive is committed to the repo.
 **Prerequisites:** Windows 11 with Hyper-V enabled, PowerShell 5.1+, and
 Administrator privileges. WSL2 is installed automatically by `provision.ps1`
 on first run if not already present (a reboot may be required).
+`Infrastructure.Common` and `Infrastructure.Secrets` are installed from
+PSGallery automatically on first run.
 
 ```powershell
 # 1. Store config in the local vault (once per machine)

@@ -1,9 +1,9 @@
 BeforeAll {
-    # Stub Assert-ConfigFields before dot-sourcing common.ps1 so the function
-    # exists when common.ps1 is loaded. The real implementation lives in the
-    # Infrastructure.Secrets module, which is not required in the test environment.
-    function Assert-ConfigFields {
-        param($Object, $Fields, $Context)
+    # Stub Assert-RequiredProperties before dot-sourcing common.ps1 so the
+    # function exists when common.ps1 is loaded. The real implementation lives
+    # in Infrastructure.Common, which is not required in the test environment.
+    function Assert-RequiredProperties {
+        param($Object, $Properties, $Context)
     }
 
     . "$PSScriptRoot\..\hyper-v\ubuntu\common.ps1"
@@ -88,32 +88,32 @@ Describe 'ConvertFrom-VmConfigJson' {
                 Should -Throw -ExpectedMessage '*non-empty JSON array*'
         }
 
-        It 'calls Assert-ConfigFields on a JSON scalar (documents current behaviour)' {
+        It 'calls Assert-RequiredProperties on a JSON scalar (documents current behaviour)' {
             # ConvertFrom-Json succeeds for a quoted scalar like '"hello"', but
-            # the result is a string, not a PSCustomObject. Assert-ConfigFields
+            # the result is a string, not a PSCustomObject. Assert-RequiredProperties
             # is called on it - this test pins the current behaviour so any
             # future guard added here is a deliberate, tested change.
-            Mock Assert-ConfigFields {}
+            Mock Assert-RequiredProperties {}
             { ConvertFrom-VmConfigJson -Json '"hello"' } | Should -Not -Throw
-            Should -Invoke Assert-ConfigFields -Times 1 -Exactly
+            Should -Invoke Assert-RequiredProperties -Times 1 -Exactly
         }
     }
 
     # ------------------------------------------------------------------
-    Context 'Assert-ConfigFields call contract' {
+    Context 'Assert-RequiredProperties call contract' {
     # ------------------------------------------------------------------
 
-        It 'calls Assert-ConfigFields once per VM' {
-            Mock Assert-ConfigFields {}
+        It 'calls Assert-RequiredProperties once per VM' {
+            Mock Assert-RequiredProperties {}
             $json = "[$(New-ValidVmJson 'node-01'), $(New-ValidVmJson 'node-02')]"
             @(ConvertFrom-VmConfigJson -Json $json)
-            Should -Invoke Assert-ConfigFields -Times 2 -Exactly
+            Should -Invoke Assert-RequiredProperties -Times 2 -Exactly
         }
 
         It 'passes the vmName in the Context when vmName is present' {
-            Mock Assert-ConfigFields {}
+            Mock Assert-RequiredProperties {}
             @(ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson 'node-01')]")
-            Should -Invoke Assert-ConfigFields -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke Assert-RequiredProperties -Times 1 -Exactly -ParameterFilter {
                 $Context -like "*node-01*"
             }
         }
@@ -122,15 +122,15 @@ Describe 'ConvertFrom-VmConfigJson' {
             # A VM definition with no vmName field at all - the Context string
             # must fall back to (unknown) so the error is still meaningful.
             $json = '[{ "cpuCount": 2 }]'
-            Mock Assert-ConfigFields {}
+            Mock Assert-RequiredProperties {}
             @(ConvertFrom-VmConfigJson -Json $json)
-            Should -Invoke Assert-ConfigFields -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke Assert-RequiredProperties -Times 1 -Exactly -ParameterFilter {
                 $Context -like "*(unknown)*"
             }
         }
 
-        It 'throws when Assert-ConfigFields throws (field validation failure)' {
-            Mock Assert-ConfigFields { throw "missing required field 'ipAddress'" }
+        It 'throws when Assert-RequiredProperties throws (field validation failure)' {
+            Mock Assert-RequiredProperties { throw "missing required field 'ipAddress'" }
             { ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]" } |
                 Should -Throw -ExpectedMessage "*missing required field*"
         }
@@ -149,7 +149,7 @@ Describe 'ConvertFrom-VmConfigJson' {
             # $script: scope is required - Pester mock scriptblocks run in their
             # own scope and cannot read a local $callCount from the It block.
             $script:_mockCallCount = 0
-            Mock Assert-ConfigFields {
+            Mock Assert-RequiredProperties {
                 $script:_mockCallCount++
                 if ($script:_mockCallCount -eq 2) {
                     throw "missing required field 'ipAddress'"
