@@ -161,10 +161,25 @@ Write-Host "$($vmsToProvision.Count) VM(s) queued for provisioning." `
 # 5. Disk image acquisition
 #    Downloads, converts, patches, and copies the per-VM VHDX.
 #    Sets $vm._vhdxPath on each object for use in step 8.
+#
+#    Invoke-BaseImagePatch (called internally) throws a 'Wsl2NotReady:'
+#    error if WSL2 is not yet installed or initialised. We catch it here
+#    so we can print the reboot prompt and exit cleanly rather than
+#    letting the error propagate as an unhandled exception.
 # ---------------------------------------------------------------------------
 
 foreach ($vm in $vmsToProvision) {
-    Invoke-DiskImageAcquisition -Vm $vm
+    try {
+        Invoke-DiskImageAcquisition -Vm $vm
+    }
+    catch {
+        if ($_.Exception.Message -match '^Wsl2NotReady: ') {
+            Write-Host ($_.Exception.Message -replace '^Wsl2NotReady: ', '') `
+                -ForegroundColor Yellow
+            exit 0
+        }
+        throw
+    }
 }
 
 # ---------------------------------------------------------------------------
