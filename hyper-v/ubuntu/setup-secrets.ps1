@@ -68,7 +68,7 @@ Initialize-InfrastructureVault `
     -Validate {
         param($json)
         $defs = @(ConvertFrom-VmConfigJson -Json $json)
-        Write-Host "✓ JSON validated - $($defs.Count) VM definition(s) found." `
+        Write-Host "[OK] JSON validated - $($defs.Count) VM definition(s) found." `
             -ForegroundColor Green
     }
 
