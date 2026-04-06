@@ -29,6 +29,12 @@ BeforeAll {
 
     . "$PSScriptRoot\..\hyper-v\ubuntu\acquire-disk-image.ps1"
 
+    # Invoke-BaseImagePatch is defined in acquire-disk-image.ps1 and is tested
+    # separately in Invoke-BaseImagePatch.Tests.ps1. Stub it here so acquisition
+    # tests can control whether patching "succeeds" or "throws" without needing
+    # WSL2 mock infrastructure.
+    function Invoke-BaseImagePatch { param($BaseImagePath, $SentinelPath) }
+
     # Minimal VM object for all tests.
     function New-TestVm {
         [PSCustomObject]@{
@@ -247,78 +253,33 @@ Describe 'Invoke-DiskImageAcquisition' {
     }
 
     # ------------------------------------------------------------------
-    Context 'WSL2 datasource patching - sentinel present' {
+    Context 'WSL2 datasource patching - delegates to Invoke-BaseImagePatch' {
     # ------------------------------------------------------------------
-        # When the sentinel file exists the WSL2 mount block is skipped
-        # entirely. This is the normal path on every run after the first.
+        # Invoke-BaseImagePatch is tested in Invoke-BaseImagePatch.Tests.ps1.
+        # These tests verify that Invoke-DiskImageAcquisition calls it with
+        # the correct paths and propagates a Wsl2NotReady throw upward.
 
-        It 'does not call Mount-VHD when the sentinel file is present' {
+        It 'calls Invoke-BaseImagePatch with the base image and sentinel paths' {
             Set-DefaultTestPath
-            Mock Mount-VHD {}
+            Mock Invoke-BaseImagePatch {}
             Mock Copy-Item {}
             Mock Get-VHD { [PSCustomObject]@{ Size = 2GB } }
             Mock Resize-VHD {}
 
             Invoke-DiskImageAcquisition -Vm (New-TestVm)
 
-            Should -Invoke Mount-VHD -Times 0
-        }
-    }
-
-    # ------------------------------------------------------------------
-    Context 'WSL2 datasource patching - wsl --mount --bare fails' {
-    # ------------------------------------------------------------------
-        # The finally block must dismount the VHD regardless of whether the
-        # mount step succeeds. This test verifies the finally guarantee.
-        #
-        # NOTE: the full WSL2 success path (lsblk before/after diff, patch
-        # script output parsing) is not covered here. It requires stateful
-        # mock returns across multiple sequential wsl calls that Pester's
-        # Mock cannot express cleanly. That path is covered by integration
-        # testing against a real WSL2 environment.
-        #
-        # NOTE: the WSL2-not-installed path (exit 0 inside the function) is
-        # untestable in unit tests because exit 0 terminates the test runner
-        # process. It is verified manually during first-time environment setup.
-
-        BeforeEach {
-            # Sentinel absent so the patching block runs.
-            Mock Test-Path {
-                param($Path, $PathType)
-                if ($PathType -eq 'Container')         { return $true  }
-                if ($Path -match '24\.04.*\.vhdx$')    { return $true  }
-                if ($Path -match '\.nocloud-patched$') { return $false }  # patch needed
-                if ($Path -match 'node-01\.vhdx$')     { return $false }
-                return $false
+            Should -Invoke Invoke-BaseImagePatch -Times 1 -Exactly -ParameterFilter {
+                $BaseImagePath -eq 'C:\VHDs\ubuntu-24.04-server-cloudimg-amd64.vhdx' -and
+                $SentinelPath  -eq 'C:\VHDs\ubuntu-24.04-server-cloudimg-amd64.nocloud-patched'
             }
-            Mock Get-Command { [PSCustomObject]@{ Name = 'wsl.exe' } }
-            Mock Mount-VHD { [PSCustomObject]@{ DiskNumber = 3 } }
-            Mock Dismount-VHD {}
         }
 
-        It 'throws when wsl --mount --bare returns a non-zero exit code' {
-            Mock wsl {
-                if ($args -contains '--list')  { $global:LASTEXITCODE = 0; return 'Ubuntu' }
-                if ($args -contains '--bare')  { $global:LASTEXITCODE = 1; return 'mount error' }
-                $global:LASTEXITCODE = 0; return ''
-            }
+        It 'propagates a Wsl2NotReady throw from Invoke-BaseImagePatch' {
+            Set-DefaultTestPath
+            Mock Invoke-BaseImagePatch { throw 'Wsl2NotReady: reboot required' }
 
             { Invoke-DiskImageAcquisition -Vm (New-TestVm) } |
-                Should -Throw -ExpectedMessage '*wsl --mount --bare failed*'
-        }
-
-        It 'calls Dismount-VHD in the finally block when wsl --mount --bare fails' {
-            Mock wsl {
-                if ($args -contains '--list')  { $global:LASTEXITCODE = 0; return 'Ubuntu' }
-                if ($args -contains '--bare')  { $global:LASTEXITCODE = 1; return 'mount error' }
-                $global:LASTEXITCODE = 0; return ''
-            }
-
-            { Invoke-DiskImageAcquisition -Vm (New-TestVm) } | Should -Throw
-
-            Should -Invoke Dismount-VHD -Times 1 -Exactly -ParameterFilter {
-                $Path -match 'ubuntu-24\.04-server-cloudimg-amd64\.vhdx$'
-            }
+                Should -Throw -ExpectedMessage 'Wsl2NotReady:*'
         }
     }
 
