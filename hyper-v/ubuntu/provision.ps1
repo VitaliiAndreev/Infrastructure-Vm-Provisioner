@@ -84,7 +84,7 @@ $configJson = Get-Secret -Vault $vaultName -Name $secretName `
 # ---------------------------------------------------------------------------
 
 $vmDefs = @(ConvertFrom-VmConfigJson -Json $configJson)
-Write-Host "✓ Config validated - $($vmDefs.Count) VM definition(s) found." `
+Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
     -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ foreach ($vm in $vmDefs) {
         continue
     }
 
-    Write-Host "✓ '$($vm.vmName)' passed all checks - queued for provisioning." `
+    Write-Host "[OK] '$($vm.vmName)' passed all checks - queued for provisioning." `
         -ForegroundColor Green
     $vmsToProvision.Add($vm)
 }

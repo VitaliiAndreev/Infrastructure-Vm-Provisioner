@@ -83,7 +83,7 @@ function Invoke-VmCreation {
 
     Write-Host "  Starting VM ..."
     Start-VM -VMName $Vm.vmName
-    Write-Host "  ✓ VM started." -ForegroundColor Green
+    Write-Host "  [OK] VM started." -ForegroundColor Green
 
     # ------------------------------------------------------------------
     # Poll port 22 until cloud-init finishes, then delete seed ISO.
@@ -150,7 +150,7 @@ function Invoke-VmCreation {
             )
         }
 
-        Write-Host "  ✓ SSH reachable on $($Vm.ipAddress)." -ForegroundColor Green
+        Write-Host "  [OK] SSH reachable on $($Vm.ipAddress)." -ForegroundColor Green
     }
     finally {
         # Remove-VMDvdDrive detaches before Remove-Item deletes - deleting a
@@ -164,11 +164,11 @@ function Invoke-VmCreation {
         }
         if (Test-Path $Vm._seedIsoPath) {
             Remove-Item -Path $Vm._seedIsoPath -Force
-            Write-Host "  ✓ Seed ISO removed." -ForegroundColor Green
+            Write-Host "  [OK] Seed ISO removed." -ForegroundColor Green
         }
     }
 
-    Write-Host "  ✓ $($Vm.vmName) ready." -ForegroundColor Green
+    Write-Host "  [OK] $($Vm.vmName) ready." -ForegroundColor Green
     Write-Host "    Connect: ssh $($Vm.username)@$($Vm.ipAddress)" `
         -ForegroundColor Cyan
 }

@@ -95,7 +95,7 @@ function Invoke-NetworkSetup {
     else {
         Write-Host "  Creating Internal switch '$SwitchName' ..."
         New-VMSwitch -Name $SwitchName -SwitchType Internal | Out-Null
-        Write-Host "  ✓ Switch created." -ForegroundColor Green
+        Write-Host "  [OK] Switch created." -ForegroundColor Green
     }
 
     # ------------------------------------------------------------------
@@ -126,7 +126,7 @@ function Invoke-NetworkSetup {
             -InterfaceIndex $hostAdapter.InterfaceIndex `
             -IPAddress      $gatewayIp `
             -PrefixLength   $prefixLength | Out-Null
-        Write-Host "  ✓ Host vNIC configured." -ForegroundColor Green
+        Write-Host "  [OK] Host vNIC configured." -ForegroundColor Green
     }
 
     # ------------------------------------------------------------------
@@ -143,6 +143,6 @@ function Invoke-NetworkSetup {
         Write-Host "  Creating NAT rule for $natPrefix ..."
         New-NetNat -Name $NatName `
                    -InternalIPInterfaceAddressPrefix $natPrefix | Out-Null
-        Write-Host "  ✓ NAT rule created ($natPrefix)." -ForegroundColor Green
+        Write-Host "  [OK] NAT rule created ($natPrefix)." -ForegroundColor Green
     }
 }

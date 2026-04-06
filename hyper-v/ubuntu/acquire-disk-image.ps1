@@ -191,7 +191,7 @@ function Invoke-BaseImagePatch {
             throw "Unexpected patch output (expected OK:...): $patchOut"
         }
         Write-Host "  cloud.cfg.d: $($patchOut -replace '^OK:[^:]+:','')"
-        Write-Host "  ✓ NoCloud datasource enabled in base image." `
+        Write-Host "  [OK] NoCloud datasource enabled in base image." `
             -ForegroundColor Green
     }
     finally {
@@ -337,7 +337,7 @@ function Invoke-DiskImageAcquisition {
         Remove-Item -Path $archivePath -Force
         Remove-Item -Path $extractDir  -Recurse -Force
 
-        Write-Host "  ✓ Base image cached: $baseImagePath" -ForegroundColor Green
+        Write-Host "  [OK] Base image cached: $baseImagePath" -ForegroundColor Green
     }
 
     # ------------------------------------------------------------------
@@ -387,7 +387,7 @@ function Invoke-DiskImageAcquisition {
             Resize-VHD -Path $vmDiskPath -SizeBytes $diskBytes
         }
 
-        Write-Host "  ✓ Per-VM disk ready: $vmDiskPath ($($Vm.diskGB) GB)" `
+        Write-Host "  [OK] Per-VM disk ready: $vmDiskPath ($($Vm.diskGB) GB)" `
             -ForegroundColor Green
     }
 

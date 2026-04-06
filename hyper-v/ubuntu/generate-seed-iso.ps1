@@ -129,7 +129,7 @@ ethernets:
         'network-config' = $networkConfig
     }
 
-    Write-Host "  ✓ Seed ISO ready: $seedIsoPath" -ForegroundColor Green
+    Write-Host "  [OK] Seed ISO ready: $seedIsoPath" -ForegroundColor Green
 
     # Store the ISO path on the VM object so Invoke-VmCreation can
     # attach and clean it up without recomputing the path.
