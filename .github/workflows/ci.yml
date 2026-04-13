@@ -4,8 +4,6 @@ name: CI
 # Kept as a local file so pull_request and push triggers work for this repo,
 # and so other workflows can call it via workflow_call.
 on:
-  push:
-    branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
   workflow_call:
