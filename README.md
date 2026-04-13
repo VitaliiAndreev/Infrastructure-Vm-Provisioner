@@ -8,6 +8,7 @@
 - [Quick start](#quick-start)
 - [setup-secrets.ps1](#setup-secretsps1)
 - [provision.ps1](#provisionps1)
+- [CI](#ci)
 - [Repo structure](#repo-structure)
 
 ---
@@ -140,17 +141,41 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
 
 ---
 
+## CI
+
+CI runs on pull requests targeting `master` via `.github/workflows/ci.yml`,
+which delegates to the shared reusable workflow in
+[Infrastructure-Common](https://github.com/VitaliiAndreev/Infrastructure-Common):
+
+```
+VitaliiAndreev/Infrastructure-Common/.github/workflows/ci-powershell.yml@master
+```
+
+The shared workflow runs `Run-Tests.ps1` on both PowerShell 5.1 and 7.
+No additional CI configuration is needed in this repo.
+
+---
+
 ## Repo structure
 
 ```
 Infrastructure-VM-Provisioner/
-├── hyper-v/
-│   └── ubuntu/
-│       ├── provision.ps1       # Main provisioning script
-│       ├── setup-secrets.ps1   # One-time vault setup
-│       ├── common.ps1          # Shared helpers (config parsing, secret display)
-│       └── iso.ps1             # Seed ISO creation (provision.ps1 only)
-└── README.md
+|- .github/
+|  `- workflows/
+|     `- ci.yml              # Delegates to shared ci-powershell.yml in Infrastructure-Common
+|- hyper-v/
+|  `- ubuntu/
+|     |- provision.ps1           # Entry point - orchestrates all steps below
+|     |- setup-secrets.ps1       # One-time vault setup
+|     |- common.ps1              # Shared helpers (config parsing, dot-sourced by others)
+|     |- acquire-disk-image.ps1  # Downloads and caches the Ubuntu cloud image
+|     |- generate-seed-iso.ps1   # Generates cloud-init seed ISOs
+|     |- setup-network.ps1       # Creates VmLAN switch and NAT rule
+|     |- create-vm.ps1           # Creates and starts individual VMs
+|     `- iso.ps1                 # Legacy seed ISO helper (superseded by above)
+|- Tests/               # Pester unit tests
+|- Run-Tests.ps1     # Runs Pester tests (called by ci-powershell.yml)
+`- README.md
 ```
 
 Each scenario follows the `hypervisor/guest-os/` convention. Future scenarios
