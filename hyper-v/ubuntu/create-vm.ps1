@@ -110,7 +110,7 @@ function Invoke-VmCreation {
     $sshReady            = $false
 
     try {
-        Write-Host "  Polling SSH on $($Vm.ipAddress):22 ..." -NoNewline
+        Write-Host "  Polling SSH on $($Vm.vmName) ..." -NoNewline
 
         while ((Get-Date) -lt $deadline) {
             # Abort early if the VM is no longer running - no point waiting
@@ -144,13 +144,13 @@ function Invoke-VmCreation {
 
         if (-not $sshReady) {
             throw (
-                "SSH on $($Vm.ipAddress) did not become reachable within " +
+                "SSH on '$($Vm.vmName)' did not become reachable within " +
                 "$timeoutMinutes minutes. Check the Hyper-V console for " +
                 "boot errors."
             )
         }
 
-        Write-Host "  [OK] SSH reachable on $($Vm.ipAddress)." -ForegroundColor Green
+        Write-Host "  [OK] SSH reachable on $($Vm.vmName)." -ForegroundColor Green
     }
     finally {
         # Remove-VMDvdDrive detaches before Remove-Item deletes - deleting a
@@ -169,6 +169,6 @@ function Invoke-VmCreation {
     }
 
     Write-Host "  [OK] $($Vm.vmName) ready." -ForegroundColor Green
-    Write-Host "    Connect: ssh $($Vm.username)@$($Vm.ipAddress)" `
+    Write-Host "    Connect: ssh $($Vm.username)@$($Vm.vmName)" `
         -ForegroundColor Cyan
 }
