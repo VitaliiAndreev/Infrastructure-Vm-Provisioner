@@ -4,7 +4,7 @@ BeforeAll {
     # generate-seed-iso.ps1 so the function reference resolves without error.
     function New-SeedIso { param($OutputPath, $Files) }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\generate-seed-iso.ps1"
+    . "$PSScriptRoot\..\hyper-v\ubuntu\seed\generate-seed-iso.ps1"
 
     function New-TestVm {
         [PSCustomObject]@{

@@ -1,39 +1,8 @@
 <#
-.SYNOPSIS
-    Shared helpers dot-sourced by setup-secrets.ps1 and provision.ps1.
-
 .NOTES
-    Do not run this file directly. It is intended to be dot-sourced:
-        . "$PSScriptRoot\common.ps1"
-    Infrastructure.Common must be imported before dot-sourcing this file.
+    Do not run this file directly. It is intended to be dot-sourced by
+    provision.ps1 and setup-secrets.ps1 after Infrastructure.Common is loaded.
 #>
-
-# Fields whose values must never appear in diagnostic output or error messages.
-$Script:SecretFields = @('password')
-
-# ---------------------------------------------------------------------------
-# Get-SanitizedVmDisplay
-#   Returns a display-safe version of a VM definition object with secret
-#   field values replaced by '***'. Used in error messages and diagnostics
-#   so that passwords are never written to the console or logs.
-# ---------------------------------------------------------------------------
-
-function Get-SanitizedVmDisplay {
-    param(
-        [Parameter(Mandatory)]
-        [object] $Vm
-    )
-
-    $safe = [ordered]@{}
-    foreach ($member in (Get-Member -InputObject $Vm -MemberType NoteProperty)) {
-        $safe[$member.Name] = if ($member.Name -in $Script:SecretFields) {
-            '***'
-        } else {
-            $Vm.($member.Name)
-        }
-    }
-    return [PSCustomObject]$safe
-}
 
 # ---------------------------------------------------------------------------
 # ConvertFrom-VmConfigJson
@@ -45,7 +14,7 @@ function Get-SanitizedVmDisplay {
 #       $vmDefs = @(ConvertFrom-VmConfigJson -Json $json)
 #
 #   Centralised here so the required-field list has a single source of
-#   truth — update it once when the config schema changes.
+#   truth - update it once when the config schema changes.
 # ---------------------------------------------------------------------------
 
 function ConvertFrom-VmConfigJson {
@@ -71,7 +40,7 @@ function ConvertFrom-VmConfigJson {
     }
 
     # Every VM definition must supply all of these fields. This list is the
-    # authoritative schema — setup-secrets.ps1 and provision.ps1 both rely
+    # authoritative schema - setup-secrets.ps1 and provision.ps1 both rely
     # on it via dot-source.
     $requiredFields = @(
         'vmName', 'cpuCount', 'ramGB', 'diskGB', 'ubuntuVersion',

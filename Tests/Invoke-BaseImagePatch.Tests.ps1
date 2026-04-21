@@ -10,7 +10,7 @@ BeforeAll {
     # tests for the detailed explanation).
     function wsl { $global:LASTEXITCODE = 0 }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\acquire-disk-image.ps1"
+    . "$PSScriptRoot\..\hyper-v\ubuntu\disk\Invoke-BaseImagePatch.ps1"
 
     $BaseImage = 'C:\VHDs\ubuntu-24.04-server-cloudimg-amd64.vhdx'
     $Sentinel  = 'C:\VHDs\ubuntu-24.04-server-cloudimg-amd64.nocloud-patched'
