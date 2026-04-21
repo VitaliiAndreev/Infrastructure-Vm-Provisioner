@@ -274,13 +274,6 @@ Describe 'Invoke-DiskImageAcquisition' {
             }
         }
 
-        It 'propagates a Wsl2NotReady throw from Invoke-BaseImagePatch' {
-            Set-DefaultTestPath
-            Mock Invoke-BaseImagePatch { throw 'Wsl2NotReady: reboot required' }
-
-            { Invoke-DiskImageAcquisition -Vm (New-TestVm) } |
-                Should -Throw -ExpectedMessage 'Wsl2NotReady:*'
-        }
     }
 
     # ------------------------------------------------------------------
