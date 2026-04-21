@@ -27,9 +27,9 @@ BeforeAll {
     function wsl { $global:LASTEXITCODE = 0 }
     function tar { $global:LASTEXITCODE = 0 }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\acquire-disk-image.ps1"
+    . "$PSScriptRoot\..\hyper-v\ubuntu\disk\Invoke-DiskImageAcquisition.ps1"
 
-    # Invoke-BaseImagePatch is defined in acquire-disk-image.ps1 and is tested
+    # Invoke-BaseImagePatch is defined in Invoke-BaseImagePatch.ps1 and is tested
     # separately in Invoke-BaseImagePatch.Tests.ps1. Stub it here so acquisition
     # tests can control whether patching "succeeds" or "throws" without needing
     # WSL2 mock infrastructure.

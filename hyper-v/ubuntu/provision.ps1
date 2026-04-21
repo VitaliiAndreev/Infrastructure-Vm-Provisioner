@@ -36,12 +36,14 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-. "$PSScriptRoot\common.ps1"
-. "$PSScriptRoot\iso.ps1"
-. "$PSScriptRoot\acquire-disk-image.ps1"
-. "$PSScriptRoot\generate-seed-iso.ps1"
-. "$PSScriptRoot\setup-network.ps1"
-. "$PSScriptRoot\create-vm.ps1"
+. "$PSScriptRoot\config\Get-SanitizedVmDisplay.ps1"
+. "$PSScriptRoot\config\ConvertFrom-VmConfigJson.ps1"
+. "$PSScriptRoot\seed\iso.ps1"
+. "$PSScriptRoot\disk\Invoke-BaseImagePatch.ps1"
+. "$PSScriptRoot\disk\Invoke-DiskImageAcquisition.ps1"
+. "$PSScriptRoot\seed\generate-seed-iso.ps1"
+. "$PSScriptRoot\network\setup-network.ps1"
+. "$PSScriptRoot\vm\create-vm.ps1"
 
 # ---------------------------------------------------------------------------
 # 1. Ensure SecretManagement modules are loaded
