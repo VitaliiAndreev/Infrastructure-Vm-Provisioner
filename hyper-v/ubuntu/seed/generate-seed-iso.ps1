@@ -73,6 +73,10 @@ local-hostname: $($Vm.vmName)
     # quotes within those strings are escaped below.
     # ------------------------------------------------------------------
     $yamlUsername = $Vm.username -replace '\\', '\\' -replace '"', '\"'
+    # cloud-init requires plain_text_passwd as a literal string in YAML.
+    # Vm.password is a plain string from ConvertFrom-Json; converting to
+    # SecureString would only require converting back here. Protection
+    # relies on vault encryption at rest and the short session lifetime.
     $yamlPassword = $Vm.password -replace '\\', '\\' -replace '"', '\"'
 
     $userData = @"
