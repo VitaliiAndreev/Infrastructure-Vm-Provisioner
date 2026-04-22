@@ -48,6 +48,8 @@ BeforeAll {
         Mock Add-VMDvdDrive      { }
         Mock Connect-VMNetworkAdapter { }
         Mock Start-VM            { }
+        # Return Off state by default so the post-creation guard passes.
+        Mock Get-VM              { [PSCustomObject]@{ State = 'Off' } }
         Mock Get-VMDvdDrive      { New-TestDvdDrive }
         Mock Remove-VMDvdDrive   { }
         Mock Test-Path           { $false }
@@ -181,6 +183,35 @@ Describe 'Invoke-VmCreation' {
             Should -Invoke Start-VM -Times 1 -Exactly -ParameterFilter {
                 $VMName -eq 'node-01'
             }
+        }
+    }
+
+    # ------------------------------------------------------------------
+    Context 'post-creation state guard' {
+    # ------------------------------------------------------------------
+        # New-VM may silently fail when the target VHDX is locked by a
+        # running leftover VM (Hyper-V can surface this as a warning rather
+        # than a terminating error). A host auto-start policy can also
+        # start a freshly-created VM before Set-VMFirmware runs. Either
+        # way the VM is in a non-Off state right after New-VM returns, so
+        # we check and throw before reaching Set-VMFirmware.
+
+        It 'throws with an actionable message when the VM is not Off after creation' {
+            Initialize-HyperVMocks
+            Mock Get-VM { [PSCustomObject]@{ State = 'Running' } }
+
+            { Invoke-VmCreation -Vm (New-TestVm) -SwitchName 'VmLAN' } |
+                Should -Throw -ExpectedMessage '*Stop or remove the VM manually*'
+        }
+
+        It 'does not call Set-VMFirmware when the VM is not Off after creation' {
+            Initialize-HyperVMocks
+            Mock Get-VM { [PSCustomObject]@{ State = 'Running' } }
+
+            { Invoke-VmCreation -Vm (New-TestVm) -SwitchName 'VmLAN' } |
+                Should -Throw
+
+            Should -Invoke Set-VMFirmware -Times 0
         }
     }
 

@@ -49,6 +49,26 @@ function Invoke-VmCreation {
            -VHDPath           $Vm._vhdxPath `
            -Path              $Vm.vmConfigPath | Out-Null
 
+    # ------------------------------------------------------------------
+    # Verify New-VM produced a VM in the Off state before proceeding.
+    # If the VHDX was locked by a still-running previous instance, New-VM
+    # may have silently failed while $ErrorActionPreference = 'Stop' did
+    # not fire (Hyper-V can surface some failures as warnings). A host
+    # auto-start policy could also start the VM between creation and here.
+    # Both cases would cause Set-VMFirmware to fail with "cannot modify
+    # firmware while VM is running". We catch both by checking state now
+    # and throwing a clear message rather than a confusing firmware error.
+    # ------------------------------------------------------------------
+    $createdVmState = (Get-VM -Name $Vm.vmName -ErrorAction Stop).State
+    if ($createdVmState -ne 'Off') {
+        throw (
+            "VM '$($Vm.vmName)' is in state '$createdVmState' immediately " +
+            "after creation - expected 'Off'. A previous provisioning run " +
+            "may have left it running. Stop or remove the VM manually and " +
+            "re-run, or delete the per-VM disk to force a fresh provision."
+        )
+    }
+
     Set-VMProcessor -VMName $Vm.vmName -Count $Vm.cpuCount
 
     # ------------------------------------------------------------------
