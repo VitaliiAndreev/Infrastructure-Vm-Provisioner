@@ -122,16 +122,28 @@ caller owns nothing below that.
 **Behaviour**:
 - Accept a single validated VM config object (same shape as produced by
   `ConvertFrom-VmConfigJson`).
-- Check whether the VM exists in Hyper-V (`Get-VM -Name`). If absent,
-  log and return (idempotent).
-- Stop the VM if it is running (`Stop-VM -Force`).
-- Remove the VM object (`Remove-VM -Force`). This releases the file lock
-  on the VHDX before the file is deleted.
+- Check whether the VM exists in Hyper-V (`Get-VM -Name`).
+  - If present: stop if running (`Stop-VM -Force`), then remove
+    (`Remove-VM -Force`).
+  - If absent: skip the Hyper-V steps and proceed directly to file
+    cleanup. This ensures re-running after a partial failure (VM removed
+    but files still present) retries the deletions rather than returning
+    early and leaving artefacts behind.
 - Delete the per-VM VHDX (`{vhdPath}/{vmName}.vhdx`) if it exists.
 - Delete the seed ISO (`{vmConfigPath}/{vmName}-seed.iso`) if it exists.
   Absence is not an error - `provision.ps1` removes it after first boot.
 - Delete the VM config directory (`{vmConfigPath}/{vmName}/`) if it
   exists (holds `.vmcx`, `.vmrs`, snapshots).
+
+**File handle release**: `Remove-VM` returns before the Virtual Machine
+Management Service (VMMS) fully releases its handles on the VHDX and
+config directory. A `Remove-Item` immediately after would throw
+`IOException: The process cannot access the file`. Each file deletion
+must retry in a short loop (up to 5 attempts, 2-second intervals).
+If the file is still locked after all retries, the function throws with
+a clear message identifying which file could not be deleted. Re-running
+the script after such a failure will skip the already-removed VM and
+retry only the outstanding file deletions.
 
 **Tests**: `Tests/down/vm/Invoke-VmRemoval.Tests.ps1`
 
@@ -143,11 +155,13 @@ Stub all Hyper-V and filesystem cmdlets (`Get-VM`, `Stop-VM`,
 - Calls `Remove-VM` after stopping.
 - Deletes VHDX when the file exists.
 - Does not throw when VHDX is absent.
+- Retries VHDX deletion when the first attempt throws `IOException`.
+- Throws after exhausting retries if the file remains locked.
 - Deletes seed ISO when the file exists.
 - Does not throw when seed ISO is absent.
 - Deletes VM config directory when it exists.
-- Returns early without any destructive call when the VM does not exist
-  in Hyper-V.
+- Still deletes files when the VM is already absent from Hyper-V
+  (re-run after partial failure).
 
 **README**: Add `down/vm/remove-vm.ps1` to repo structure.
 
