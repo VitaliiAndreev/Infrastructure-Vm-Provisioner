@@ -182,7 +182,9 @@ Infrastructure-VM-Provisioner/
 |     |  |  `- iso.ps1                         # IMAPI2 ISO creation helper
 |     |  `- vm/
 |     |     `- create-vm.ps1                   # Creates, boots, and polls each VM
-|     `- down/                                 # Removal helpers (see deprovision.ps1)
+|     `- down/
+|        `- vm/
+|           `- remove-vm.ps1                # Stops, removes VM, deletes VHDX and config dir
 |- Tests/
 |  |- common/config/         # Unit tests for common/config helpers
 |  |- up/
@@ -190,7 +192,8 @@ Infrastructure-VM-Provisioner/
 |  |  |- network/            # Unit tests for up/network
 |  |  |- seed/               # Unit tests for up/seed
 |  |  `- vm/                 # Unit tests for up/vm
-|  `- down/                  # Unit tests for down helpers
+|  `- down/
+|     `- vm/                 # Unit tests for down/vm
 |- Run-Tests.ps1             # Runs Pester tests (called by ci-powershell.yml)
 `- README.md
 ```
