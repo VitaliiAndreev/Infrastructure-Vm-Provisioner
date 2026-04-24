@@ -1,5 +1,5 @@
 BeforeAll {
-    . "$PSScriptRoot\..\hyper-v\ubuntu\config\Get-SanitizedVmDisplay.ps1"
+    . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\common\config\Get-SanitizedVmDisplay.ps1"
 
     # Builds a PSCustomObject from a hashtable - mirrors what ConvertFrom-Json
     # produces so tests reflect real consumer usage.

@@ -165,16 +165,33 @@ Infrastructure-VM-Provisioner/
 |     `- ci.yml              # Delegates to shared ci-powershell.yml in Infrastructure-Common
 |- hyper-v/
 |  `- ubuntu/
-|     |- provision.ps1           # Entry point - orchestrates all steps below
-|     |- setup-secrets.ps1       # One-time vault setup
-|     |- common.ps1              # Shared helpers (config parsing, dot-sourced by others)
-|     |- acquire-disk-image.ps1  # Downloads and caches the Ubuntu cloud image
-|     |- generate-seed-iso.ps1   # Generates cloud-init seed ISOs
-|     |- setup-network.ps1       # Creates VmLAN switch and NAT rule
-|     |- create-vm.ps1           # Creates and starts individual VMs
-|     `- iso.ps1                 # Legacy seed ISO helper (superseded by above)
-|- Tests/               # Pester unit tests
-|- Run-Tests.ps1     # Runs Pester tests (called by ci-powershell.yml)
+|     |- provision.ps1       # Entry point - orchestrates all provisioning steps
+|     |- setup-secrets.ps1   # One-time vault setup
+|     |- common/
+|     |  `- config/
+|     |     |- ConvertFrom-VmConfigJson.ps1  # JSON parsing and validation
+|     |     `- Get-SanitizedVmDisplay.ps1    # Masks password in diagnostic output
+|     |- up/
+|     |  |- disk/
+|     |  |  |- Invoke-DiskImageAcquisition.ps1  # Downloads, converts, caches base VHDX
+|     |  |  `- Invoke-BaseImagePatch.ps1        # Patches cloud-init datasource via WSL2
+|     |  |- network/
+|     |  |  `- setup-network.ps1               # Creates VmLAN switch, host IP, NAT rule
+|     |  |- seed/
+|     |  |  |- generate-seed-iso.ps1           # Builds cloud-init seed ISO
+|     |  |  `- iso.ps1                         # IMAPI2 ISO creation helper
+|     |  `- vm/
+|     |     `- create-vm.ps1                   # Creates, boots, and polls each VM
+|     `- down/                                 # Removal helpers (see deprovision.ps1)
+|- Tests/
+|  |- common/config/         # Unit tests for common/config helpers
+|  |- up/
+|  |  |- disk/               # Unit tests for up/disk
+|  |  |- network/            # Unit tests for up/network
+|  |  |- seed/               # Unit tests for up/seed
+|  |  `- vm/                 # Unit tests for up/vm
+|  `- down/                  # Unit tests for down helpers
+|- Run-Tests.ps1             # Runs Pester tests (called by ci-powershell.yml)
 `- README.md
 ```
 

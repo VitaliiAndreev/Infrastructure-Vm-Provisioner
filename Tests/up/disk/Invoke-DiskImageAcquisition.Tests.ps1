@@ -27,7 +27,7 @@ BeforeAll {
     function wsl { $global:LASTEXITCODE = 0 }
     function tar { $global:LASTEXITCODE = 0 }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\disk\Invoke-DiskImageAcquisition.ps1"
+    . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\disk\Invoke-DiskImageAcquisition.ps1"
 
     # Invoke-BaseImagePatch is defined in Invoke-BaseImagePatch.ps1 and is tested
     # separately in Invoke-BaseImagePatch.Tests.ps1. Stub it here so acquisition

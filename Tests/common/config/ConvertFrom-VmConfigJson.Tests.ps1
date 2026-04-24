@@ -7,7 +7,7 @@ BeforeAll {
         param($Object, $Properties, $Context)
     }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\config\ConvertFrom-VmConfigJson.ps1"
+    . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\common\config\ConvertFrom-VmConfigJson.ps1"
 
     # Builds a minimal valid VM definition with all required fields populated.
     # Individual tests override specific fields as needed.

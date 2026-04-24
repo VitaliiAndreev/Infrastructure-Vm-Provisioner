@@ -8,7 +8,7 @@ BeforeAll {
     function Get-NetNat       { param([string]$Name, $ErrorAction) }
     function New-NetNat       { param([string]$Name, $InternalIPInterfaceAddressPrefix) }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\network\setup-network.ps1"
+    . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\network\setup-network.ps1"
 
     # Factory for a minimal VM object. All VMs in a single batch must share
     # the same gateway and subnetMask (one Internal switch = one subnet).
