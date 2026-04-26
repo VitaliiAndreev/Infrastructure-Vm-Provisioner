@@ -13,7 +13,7 @@ BeforeAll {
     function Remove-Item              { param($Path, [switch]$Force) }
     function Test-Path                { param($Path) }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\vm\create-vm.ps1"
+    . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\vm\create-vm.ps1"
 
     # Standard VM object satisfying all Invoke-VmCreation requirements.
     function New-TestVm {

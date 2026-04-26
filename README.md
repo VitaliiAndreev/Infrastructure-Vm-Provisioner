@@ -1,6 +1,6 @@
 # Infrastructure-VM-Provisioner
 
-> Reusable Windows scripting tooling for automated Hyper-V VM provisioning.
+> Reusable Windows scripting tooling for automated Hyper-V VM provisioning and removal.
 
 ## Index
 
@@ -8,6 +8,7 @@
 - [Quick start](#quick-start)
 - [setup-secrets.ps1](#setup-secretsps1)
 - [provision.ps1](#provisionps1)
+- [deprovision.ps1](#deprovisionps1)
 - [CI](#ci)
 - [Repo structure](#repo-structure)
 
@@ -19,10 +20,10 @@ General-purpose, reusable Windows scripting tooling for automated Hyper-V VM
 provisioning. Not specific to any single project — intended to be consumed by
 other projects that need self-hosted infrastructure.
 
-Automates creation of Hyper-V VMs on Windows 11, with Ubuntu installed and a
-default user configured via cloud-init. All parameters are stored in an
-AES-256 encrypted local vault scoped to the Windows user account — nothing
-sensitive is committed to the repo.
+Automates creation and removal of Hyper-V VMs on Windows 11, with Ubuntu
+installed and a default user configured via cloud-init. All parameters are
+stored in an AES-256 encrypted local vault scoped to the Windows user account
+— nothing sensitive is committed to the repo.
 
 ---
 
@@ -40,6 +41,9 @@ PSGallery automatically on first run.
 
 # 2. Provision VMs (run as Administrator)
 .\hyper-v\ubuntu\provision.ps1
+
+# 3. Remove VMs when no longer needed (run as Administrator)
+.\hyper-v\ubuntu\deprovision.ps1
 ```
 
 ---
@@ -141,6 +145,43 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
 
 ---
 
+## deprovision.ps1
+
+Run as Administrator to remove VMs that were created by `provision.ps1`.
+
+```powershell
+.\deprovision.ps1
+```
+
+Reads the same `VmProvisionerConfig` from the vault and for each VM definition:
+
+1. Validates all required fields.
+2. Stops the VM if running, then removes it from Hyper-V. If the VM is already
+   absent (re-run after a partial failure), the Hyper-V step is skipped and
+   only file cleanup is attempted.
+3. Deletes the per-VM VHDX (`{vmName}.vhdx`) in `vhdPath`. If Windows VMMS
+   still holds a handle after `Remove-VM`, deletion is retried up to 5 times
+   at 2-second intervals. If the file is still locked after all retries the
+   script throws with the path identified — re-running after a few seconds
+   retries the deletion.
+4. Deletes the seed ISO (`{vmName}-seed.iso`) in `vmConfigPath` if present.
+   `provision.ps1` removes it after first boot, so absence is not an error.
+5. Deletes the VM configuration directory (`{vmConfigPath}/{vmName}/`) if
+   present, with the same retry logic as the VHDX.
+
+After all VMs are processed:
+
+6. Removes the `VmLAN-NAT` NAT rule, the gateway IP from the host vNIC, and
+   the `VmLAN` Internal switch — but only when no VMs remain connected to the
+   switch. If VMs outside the config are still attached (e.g. provisioned
+   separately), the network teardown is skipped to preserve their connectivity.
+
+**The base Ubuntu image is not deleted.** It is shared across all VMs of the
+same Ubuntu version and is not specific to any single config entry. Delete it
+manually from `vhdPath` if it is no longer needed.
+
+---
+
 ## CI
 
 CI runs on pull requests targeting `master` via `.github/workflows/ci.yml`,
@@ -165,16 +206,46 @@ Infrastructure-VM-Provisioner/
 |     `- ci.yml              # Delegates to shared ci-powershell.yml in Infrastructure-Common
 |- hyper-v/
 |  `- ubuntu/
-|     |- provision.ps1           # Entry point - orchestrates all steps below
-|     |- setup-secrets.ps1       # One-time vault setup
-|     |- common.ps1              # Shared helpers (config parsing, dot-sourced by others)
-|     |- acquire-disk-image.ps1  # Downloads and caches the Ubuntu cloud image
-|     |- generate-seed-iso.ps1   # Generates cloud-init seed ISOs
-|     |- setup-network.ps1       # Creates VmLAN switch and NAT rule
-|     |- create-vm.ps1           # Creates and starts individual VMs
-|     `- iso.ps1                 # Legacy seed ISO helper (superseded by above)
-|- Tests/               # Pester unit tests
-|- Run-Tests.ps1     # Runs Pester tests (called by ci-powershell.yml)
+|     |- provision.ps1       # Entry point - orchestrates all provisioning steps
+|     |- deprovision.ps1     # Entry point - reverses provision.ps1
+|     |- setup-secrets.ps1   # One-time vault setup
+|     |- common/
+|     |  `- config/
+|     |     |- ConvertFrom-VmConfigJson.ps1  # JSON parsing and validation
+|     |     `- Get-SanitizedVmDisplay.ps1    # Masks password in diagnostic output
+|     |- up/
+|     |  |- config/
+|     |  |  `- Select-VmsForProvisioning.ps1 # Pre-flight VM-existence and IP-conflict checks
+|     |  |- disk/
+|     |  |  |- Invoke-DiskImageAcquisition.ps1  # Downloads, converts, caches base VHDX
+|     |  |  `- Invoke-BaseImagePatch.ps1        # Patches cloud-init datasource via WSL2
+|     |  |- network/
+|     |  |  `- setup-network.ps1               # Creates VmLAN switch, host IP, NAT rule
+|     |  |- seed/
+|     |  |  |- generate-seed-iso.ps1           # Builds cloud-init seed ISO
+|     |  |  `- iso.ps1                         # IMAPI2 ISO creation helper
+|     |  `- vm/
+|     |     `- create-vm.ps1                   # Creates, boots, and polls each VM
+|     `- down/
+|        |- config/
+|        |  `- Assert-GatewayConsistency.ps1 # Validates all VMs share one gateway
+|        |- network/
+|        |  `- teardown-network.ps1         # Removes NAT rule, host IP, and switch
+|        `- vm/
+|           `- remove-vm.ps1               # Stops, removes VM, deletes VHDX and config dir
+|- Tests/
+|  |- common/config/         # Unit tests for common/config helpers
+|  |- up/
+|  |  |- config/             # Unit tests for up/config helpers
+|  |  |- disk/               # Unit tests for up/disk
+|  |  |- network/            # Unit tests for up/network
+|  |  |- seed/               # Unit tests for up/seed
+|  |  `- vm/                 # Unit tests for up/vm
+|  `- down/
+|     |- config/             # Unit tests for down/config helpers
+|     |- network/            # Unit tests for down/network
+|     `- vm/                 # Unit tests for down/vm
+|- Run-Tests.ps1             # Runs Pester tests (called by ci-powershell.yml)
 `- README.md
 ```
 

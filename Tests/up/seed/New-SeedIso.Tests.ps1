@@ -18,7 +18,7 @@ BeforeAll {
     function Remove-Item { param($Path, [switch]$Recurse, [switch]$Force, $ErrorAction) }
     function New-Object  { param($ComObject) }
 
-    . "$PSScriptRoot\..\hyper-v\ubuntu\seed\iso.ps1"
+    . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\seed\iso.ps1"
 }
 
 Describe 'New-SeedIso' {
