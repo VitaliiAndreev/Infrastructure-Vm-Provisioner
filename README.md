@@ -214,6 +214,8 @@ Infrastructure-VM-Provisioner/
 |     |     |- ConvertFrom-VmConfigJson.ps1  # JSON parsing and validation
 |     |     `- Get-SanitizedVmDisplay.ps1    # Masks password in diagnostic output
 |     |- up/
+|     |  |- config/
+|     |  |  `- Select-VmsForProvisioning.ps1 # Pre-flight VM-existence and IP-conflict checks
 |     |  |- disk/
 |     |  |  |- Invoke-DiskImageAcquisition.ps1  # Downloads, converts, caches base VHDX
 |     |  |  `- Invoke-BaseImagePatch.ps1        # Patches cloud-init datasource via WSL2
@@ -234,6 +236,7 @@ Infrastructure-VM-Provisioner/
 |- Tests/
 |  |- common/config/         # Unit tests for common/config helpers
 |  |- up/
+|  |  |- config/             # Unit tests for up/config helpers
 |  |  |- disk/               # Unit tests for up/disk
 |  |  |- network/            # Unit tests for up/network
 |  |  |- seed/               # Unit tests for up/seed

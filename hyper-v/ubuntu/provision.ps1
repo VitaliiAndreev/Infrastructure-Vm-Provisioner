@@ -38,6 +38,7 @@ $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\common\config\Get-SanitizedVmDisplay.ps1"
 . "$PSScriptRoot\common\config\ConvertFrom-VmConfigJson.ps1"
+. "$PSScriptRoot\up\config\Select-VmsForProvisioning.ps1"
 . "$PSScriptRoot\up\seed\iso.ps1"
 . "$PSScriptRoot\up\disk\Invoke-BaseImagePatch.ps1"
 . "$PSScriptRoot\up\disk\Invoke-DiskImageAcquisition.ps1"
@@ -91,62 +92,12 @@ Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
 
 # ---------------------------------------------------------------------------
 # 4. Idempotency and safety checks
-#
-#    For each VM definition two checks run in order:
-#
-#    a) VM existence  - if a VM with vmName already exists in Hyper-V,
-#       skip that entry. Re-creating an existing VM risks data loss.
-#
-#    b) IP conflict   - if ipAddress responds to a ping, abort that entry.
-#       Assigning a static IP already in use will cause network conflicts
-#       that are difficult to diagnose inside the VM.
-#
-#    VMs that pass both checks are collected in $vmsToProvision for the
-#    subsequent provisioning steps.
+#    Filters $vmDefs down to VMs that are safe to provision:
+#      a) no existing Hyper-V VM with the same vmName
+#      b) no machine already responding to the target ipAddress
 # ---------------------------------------------------------------------------
 
-$vmsToProvision = [System.Collections.Generic.List[object]]::new()
-
-foreach ($vm in $vmDefs) {
-    Write-Host ""
-    Write-Host "--- Checking: $($vm.vmName) ---" -ForegroundColor Cyan
-
-    # ------------------------------------------------------------------
-    # Check a) VM existence
-    # ------------------------------------------------------------------
-    # Get-VM throws on a missing name in PS 5.1 without -ErrorAction, so
-    # SilentlyContinue is required to get a $null return instead.
-    $existing = Get-VM -Name $vm.vmName -ErrorAction SilentlyContinue
-    if ($null -ne $existing) {
-        Write-Warning "VM '$($vm.vmName)' already exists in Hyper-V - skipping."
-        continue
-    }
-
-    # ------------------------------------------------------------------
-    # Check b) IP conflict
-    # ------------------------------------------------------------------
-    # [System.Net.NetworkInformation.Ping] is used instead of
-    # Test-Connection because Test-Connection's -TimeoutSeconds parameter
-    # was only added in PS 7. The .NET API works identically on PS 5.1 and
-    # PS 7. A 1000 ms timeout avoids a long wait per entry when the address
-    # is offline (the expected state for a VM that doesn't exist yet).
-    $ping       = [System.Net.NetworkInformation.Ping]::new()
-    $pingResult = $ping.Send($vm.ipAddress, 1000)
-    $ping.Dispose()
-
-    if ($pingResult.Status -eq
-            [System.Net.NetworkInformation.IPStatus]::Success) {
-        Write-Warning (
-            "IP $($vm.ipAddress) is already in use on the network - " +
-            "skipping '$($vm.vmName)' to avoid a static-IP conflict."
-        )
-        continue
-    }
-
-    Write-Host "[OK] '$($vm.vmName)' passed all checks - queued for provisioning." `
-        -ForegroundColor Green
-    $vmsToProvision.Add($vm)
-}
+$vmsToProvision = @(Select-VmsForProvisioning -VmDefs $vmDefs)
 
 Write-Host ""
 
