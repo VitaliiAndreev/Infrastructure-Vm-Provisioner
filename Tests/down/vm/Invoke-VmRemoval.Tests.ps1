@@ -243,6 +243,18 @@ Describe 'Remove-ItemWithRetry' {
         Should -Invoke Remove-Item -Times 1 -Exactly
     }
 
+    It 'passes -Recurse and -Force to Remove-Item' {
+        # -Recurse is required for directories (e.g. VM config dir containing
+        # files); -Force covers read-only and hidden items.
+        Mock Remove-Item { }
+
+        Remove-ItemWithRetry -Path 'C:\test\dir'
+
+        Should -Invoke Remove-Item -Times 1 -Exactly -ParameterFilter {
+            $Recurse -eq $true -and $Force -eq $true
+        }
+    }
+
     It 'retries the specified number of times before throwing' {
         Mock Remove-Item {
             throw [System.IO.IOException]::new('File locked')
@@ -252,6 +264,17 @@ Describe 'Remove-ItemWithRetry' {
             Should -Throw -ExpectedMessage '*Could not delete*'
 
         Should -Invoke Remove-Item -Times 3 -Exactly
+    }
+
+    It 'includes the locked path in the error message' {
+        # The operator needs to know which file is still held so they can
+        # identify the locking process or re-run after it releases the handle.
+        Mock Remove-Item {
+            throw [System.IO.IOException]::new('File locked')
+        }
+
+        { Remove-ItemWithRetry -Path 'C:\Hyper-V\Disks\node-01.vhdx' -MaxAttempts 1 } |
+            Should -Throw -ExpectedMessage '*C:\Hyper-V\Disks\node-01.vhdx*'
     }
 
     It 'sleeps between retry attempts' {
