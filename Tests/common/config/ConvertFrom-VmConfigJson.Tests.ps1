@@ -7,6 +7,7 @@ BeforeAll {
         param($Object, $Properties, $Context)
     }
 
+    . "$PSScriptRoot\..\..\..\..\Infrastructure-Common\Infrastructure.Common\Public\ConvertTo-Array.ps1"
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\common\config\ConvertFrom-VmConfigJson.ps1"
 
     # Builds a minimal valid VM definition with all required fields populated.
@@ -46,8 +47,8 @@ Describe 'ConvertFrom-VmConfigJson' {
 
         It 'normalises a bare JSON object to a 1-element array (PS 5.1 unwrap)' {
             # ConvertFrom-Json in PS 5.1 unwraps a single-element JSON array
-            # into a bare PSCustomObject. @() in the function normalises this
-            # so callers always receive an array.
+            # into a bare PSCustomObject. ConvertTo-Array normalises this so
+            # callers always receive an array.
             $result = @(ConvertFrom-VmConfigJson -Json (New-ValidVmJson))
             $result | Should -HaveCount 1
         }
