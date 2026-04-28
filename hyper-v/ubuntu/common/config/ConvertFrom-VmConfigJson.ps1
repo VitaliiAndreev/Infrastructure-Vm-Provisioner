@@ -31,9 +31,7 @@ function ConvertFrom-VmConfigJson {
         throw "Invalid JSON: $_"
     }
 
-    # In PS 5.1, ConvertFrom-Json unwraps single-element JSON arrays into a
-    # bare PSCustomObject. @() normalises the result to an array in both cases.
-    $vmDefs = @($parsed)
+    $vmDefs = ConvertTo-Array $parsed
 
     if ($vmDefs.Count -eq 0) {
         throw "Config must be a non-empty JSON array of VM definitions."
