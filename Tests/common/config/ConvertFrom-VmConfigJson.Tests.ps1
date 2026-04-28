@@ -7,7 +7,14 @@ BeforeAll {
         param($Object, $Properties, $Context)
     }
 
-    . "$PSScriptRoot\..\..\..\..\Infrastructure-Common\Infrastructure.Common\Public\ConvertTo-Array.ps1"
+    # ConvertTo-Array is provided by Infrastructure.Common at runtime.
+    # Stub it here so the unit tests have no cross-repo dependency.
+    function ConvertTo-Array {
+        param([AllowNull()] $InputObject)
+        if ($null -eq $InputObject) { return , @() }
+        , @($InputObject)
+    }
+
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\common\config\ConvertFrom-VmConfigJson.ps1"
 
     # Builds a minimal valid VM definition with all required fields populated.
