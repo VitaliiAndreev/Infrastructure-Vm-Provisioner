@@ -33,8 +33,8 @@ BeforeAll {
     "subnetMask":    "255.255.255.0",
     "gateway":       "10.0.0.1",
     "dns":           "8.8.8.8",
-    "vmConfigPath":  "C:\\VMs\\$vmName",
-    "vhdPath":       "C:\\VHDs"
+    "vmConfigPath":  "E:\\a_VMs\\Hyper-V\\Config",
+    "vhdPath":       "E:\\a_VMs\\Hyper-V\\Disks"
 }
 "@
     }
@@ -58,6 +58,25 @@ Describe 'ConvertFrom-VmConfigJson' {
             # callers always receive an array.
             $result = @(ConvertFrom-VmConfigJson -Json (New-ValidVmJson))
             $result | Should -HaveCount 1
+        }
+
+        It 'defaults switchName to VmLAN when absent' {
+            $result = @(ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]")
+            $result[0].switchName | Should -Be 'VmLAN'
+        }
+
+        It 'defaults natName to VmLAN-NAT when absent' {
+            $result = @(ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]")
+            $result[0].natName | Should -Be 'VmLAN-NAT'
+        }
+
+        It 'preserves explicit switchName and natName values' {
+            $custom = (New-ValidVmJson | ConvertFrom-Json)
+            $custom | Add-Member -MemberType NoteProperty -Name switchName -Value 'E2E-VmLAN'
+            $custom | Add-Member -MemberType NoteProperty -Name natName    -Value 'E2E-VmLAN-NAT'
+            $result = @(ConvertFrom-VmConfigJson -Json "[$(ConvertTo-Json $custom -Compress)]")
+            $result[0].switchName | Should -Be 'E2E-VmLAN'
+            $result[0].natName    | Should -Be 'E2E-VmLAN-NAT'
         }
 
         It 'returns all VM objects for a multi-VM JSON array' {

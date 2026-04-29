@@ -121,8 +121,8 @@ function Invoke-VmCreation {
     # password.
     #
     # [System.Net.Sockets.TcpClient] is used instead of Test-NetConnection
-    # because Test-NetConnection's output format differs between PS 5.1 and
-    # PS 7; the .NET API is consistent across both versions.
+    # for predictability: the .NET API gives a direct bool result without
+    # parsing cmdlet output objects.
     # ------------------------------------------------------------------
     $timeoutMinutes      = 10
     $pollIntervalSeconds = 10

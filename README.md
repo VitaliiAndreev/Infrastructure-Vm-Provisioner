@@ -5,6 +5,7 @@
 ## Index
 
 - [Overview](#overview)
+- [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [setup-secrets.ps1](#setup-secretsps1)
 - [provision.ps1](#provisionps1)
@@ -27,9 +28,15 @@ stored in an AES-256 encrypted local vault scoped to the Windows user account
 
 ---
 
+## Requirements
+
+PowerShell 7+ (`pwsh`). Windows PowerShell 5.1 is not supported.
+
+---
+
 ## Quick start
 
-**Prerequisites:** Windows 11 with Hyper-V enabled, PowerShell 5.1+, and
+**Prerequisites:** Windows 11 with Hyper-V enabled, PowerShell 7+, and
 Administrator privileges. WSL2 is installed automatically by `provision.ps1`
 on first run if not already present (a reboot may be required).
 `Infrastructure.Common` and `Infrastructure.Secrets` are installed from
@@ -81,8 +88,8 @@ Re-running safely updates the stored config.
     "subnetMask":    "24",
     "gateway":       "192.168.1.1",
     "dns":           "8.8.8.8",
-    "vmConfigPath":  "D:\\Hyper-V\\Config",
-    "vhdPath":       "D:\\Hyper-V\\Disks"
+    "vmConfigPath":  "E:\\a_VMs\\Hyper-V\\Config",
+    "vhdPath":       "E:\\a_VMs\\Hyper-V\\Disks"
   }
 ]
 ```
@@ -104,6 +111,8 @@ All fields are required. After first boot, connect via `ssh username@ipAddress`.
 | `dns`           | string | DNS server IP                                      |
 | `vmConfigPath`  | string | Windows path where seed ISO is written             |
 | `vhdPath`       | string | Windows path where VHDX files are stored           |
+| `switchName`    | string | Hyper-V Internal switch name. Default: `VmLAN`     |
+| `natName`       | string | Windows NAT rule name. Default: `VmLAN-NAT`        |
 
 ---
 
@@ -192,7 +201,7 @@ which delegates to the shared reusable workflow in
 VitaliiAndreev/Infrastructure-Common/.github/workflows/ci-powershell.yml@master
 ```
 
-The shared workflow runs `Run-Tests.ps1` on both PowerShell 5.1 and 7.
+The shared workflow runs `Run-Tests.ps1` on PowerShell 7.
 No additional CI configuration is needed in this repo.
 
 ---

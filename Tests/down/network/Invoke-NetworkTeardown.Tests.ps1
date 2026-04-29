@@ -1,6 +1,7 @@
 BeforeAll {
     # Stub all Hyper-V and networking cmdlets unavailable outside a Hyper-V host.
-    function Get-VMNetworkAdapter { param([switch]$All, $ErrorAction) }
+    function Get-VM               { param($ErrorAction) }
+    function Get-VMNetworkAdapter { param($VM, [switch]$All, $ErrorAction) }
     function Get-NetNat           { param([string]$Name, $ErrorAction) }
     function Remove-NetNat        { param([string]$Name, $Confirm) }
     function Get-NetIPAddress     { param($IPAddress, $ErrorAction) }
@@ -13,7 +14,8 @@ BeforeAll {
     # Sets up all stubs so the full teardown path runs without error.
     # All Get-* return absent (nothing to remove) and Remove-* are no-ops.
     function Initialize-AllAbsentMocks {
-        Mock Get-VMNetworkAdapter { }    # no VMs connected
+        Mock Get-VM               { }    # no VMs exist - no adapters to check
+        Mock Get-VMNetworkAdapter { }
         Mock Get-NetNat           { }    # NAT rule absent
         Mock Remove-NetNat        { }
         Mock Get-NetIPAddress     { }    # host IP absent
@@ -24,7 +26,8 @@ BeforeAll {
 
     # Sets up all stubs so each object exists and requires removal.
     function Initialize-AllPresentMocks {
-        Mock Get-VMNetworkAdapter { }    # no VMs connected - teardown proceeds
+        Mock Get-VM               { }    # no VMs exist - teardown proceeds
+        Mock Get-VMNetworkAdapter { }
         Mock Get-NetNat           { [PSCustomObject]@{ Name = 'VmLAN-NAT' } }
         Mock Remove-NetNat        { }
         Mock Get-NetIPAddress     { [PSCustomObject]@{ IPAddress = '192.168.1.1' } }
@@ -46,7 +49,9 @@ Describe 'Invoke-NetworkTeardown' {
 
         It 'does not remove NAT, host IP, or switch when VMs are still connected' {
             Initialize-AllPresentMocks
-            # Return an adapter connected to the switch so the guard fires.
+            # Return a VM so Get-VMNetworkAdapter receives input and returns an
+            # adapter connected to the switch, causing the guard to fire.
+            Mock Get-VM { [PSCustomObject]@{ Name = 'node-01' } }
             Mock Get-VMNetworkAdapter {
                 [PSCustomObject]@{ SwitchName = 'VmLAN'; VMName = 'node-01' }
             }
@@ -65,6 +70,7 @@ Describe 'Invoke-NetworkTeardown' {
             # must not be counted, otherwise teardown would be skipped even
             # though no VMs are attached to the target switch.
             Initialize-AllPresentMocks
+            Mock Get-VM { [PSCustomObject]@{ Name = 'node-99' } }
             Mock Get-VMNetworkAdapter {
                 [PSCustomObject]@{ SwitchName = 'OtherSwitch'; VMName = 'node-99' }
             }
@@ -78,20 +84,18 @@ Describe 'Invoke-NetworkTeardown' {
             Should -Invoke Remove-VMSwitch     -Times 1 -Exactly
         }
 
-        It 'queries all VM adapters with -All when checking for connected VMs' {
-            # Without -All, Get-VMNetworkAdapter requires -VMName and returns
-            # nothing - the guard would silently never fire, causing the switch
-            # to be torn down while VMs are still running.
+        It 'uses Get-VM pipeline to check for connected VMs' {
+            # Get-VM is used rather than Get-VMNetworkAdapter -All so that
+            # adapters for recently removed VMs are not seen. VMMS deregisters
+            # adapters asynchronously, so -All transiently returns stale entries
+            # that would incorrectly block teardown.
             Initialize-AllPresentMocks
-            Mock Get-VMNetworkAdapter { }
 
             Invoke-NetworkTeardown -SwitchName 'VmLAN' `
                                    -Gateway   '192.168.1.1' `
                                    -NatName   'VmLAN-NAT'
 
-            Should -Invoke Get-VMNetworkAdapter -Times 1 -Exactly -ParameterFilter {
-                $All -eq $true
-            }
+            Should -Invoke Get-VM -Times 1 -Exactly
         }
     }
 

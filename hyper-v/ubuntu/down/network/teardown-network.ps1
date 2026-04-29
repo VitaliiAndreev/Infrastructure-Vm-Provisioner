@@ -39,11 +39,16 @@ function Invoke-NetworkTeardown {
 
     # ------------------------------------------------------------------
     # Guard: do not remove shared network objects while VMs are still
-    # attached. Get-VMNetworkAdapter -All lists adapters for all VMs;
-    # filtering by SwitchName identifies those still on this switch.
+    # attached. Pipe Get-VM into Get-VMNetworkAdapter so only adapters
+    # belonging to currently existing VMs are considered. Get-VMNetworkAdapter
+    # -All is intentionally avoided here: VMMS deregisters adapters
+    # asynchronously after Remove-VM returns, so -All transiently reports
+    # adapters for VMs that have already been removed, causing teardown
+    # to be skipped incorrectly.
     # ------------------------------------------------------------------
     $remainingAdapters = @(
-        Get-VMNetworkAdapter -All -ErrorAction SilentlyContinue |
+        Get-VM -ErrorAction SilentlyContinue |
+            Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
             Where-Object { $_.SwitchName -eq $SwitchName }
     )
 

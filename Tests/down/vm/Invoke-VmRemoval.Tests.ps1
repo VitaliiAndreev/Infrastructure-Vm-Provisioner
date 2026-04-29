@@ -6,7 +6,6 @@ BeforeAll {
     function Remove-Item   { param($Path, [switch]$Recurse, [switch]$Force, $ErrorAction) }
     function Test-Path     { param($Path) }
     function Start-Sleep   { param($Seconds) }
-    function Join-Path     { param($Path, $ChildPath) "$Path\$ChildPath" }
 
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\down\vm\remove-vm.ps1"
 
@@ -14,8 +13,8 @@ BeforeAll {
     function New-TestVm {
         [PSCustomObject]@{
             vmName       = 'node-01'
-            vhdPath      = 'D:\Hyper-V\Disks'
-            vmConfigPath = 'D:\Hyper-V\Config'
+            vhdPath      = 'C:\a_VMs\Hyper-V\Disks'
+            vmConfigPath = 'C:\a_VMs\Hyper-V\Config'
         }
     }
 

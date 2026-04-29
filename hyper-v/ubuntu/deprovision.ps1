@@ -17,8 +17,7 @@
     - Run as Administrator (Hyper-V cmdlets require elevation).
     - Microsoft.PowerShell.SecretManagement + Microsoft.PowerShell.SecretStore
       installed by setup-secrets.ps1.
-    - PowerShell 5.1 (ships with Windows 11) or later. PS 7 is recommended
-      but not required.
+    - PowerShell 7+.
 
     IDEMPOTENCY
     - If a VM in the config is not found in Hyper-V, its Hyper-V teardown is
@@ -92,15 +91,15 @@ Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
 
 # ---------------------------------------------------------------------------
 # 4. Validate gateway consistency
-#    All VMs must share the same gateway - they were all attached to the same
-#    VmLAN Internal switch during provisioning. The gateway is needed to call
+#    All VMs must share the same gateway - they are all attached to the same
+#    Internal switch during provisioning. The gateway is needed to call
 #    Invoke-NetworkTeardown, so this check runs here rather than inside that
 #    function (which does not receive the full VM list).
 # ---------------------------------------------------------------------------
 
 $gatewayIp  = Assert-GatewayConsistency -VmDefs $vmDefs
-$switchName = 'VmLAN'
-$natName    = 'VmLAN-NAT'
+$switchName = $vmDefs[0].switchName
+$natName    = $vmDefs[0].natName
 
 # ---------------------------------------------------------------------------
 # 5. Per-VM removal

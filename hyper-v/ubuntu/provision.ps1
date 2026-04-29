@@ -16,8 +16,7 @@
     - Run as Administrator (Hyper-V cmdlets require elevation).
     - Microsoft.PowerShell.SecretManagement + Microsoft.PowerShell.SecretStore
       installed by setup-secrets.ps1.
-    - PowerShell 5.1 (ships with Windows 11) or later. PS 7 is recommended
-      but not required.
+    - PowerShell 7+.
 
     IDEMPOTENCY
     - If a Hyper-V VM with the same vmName already exists, that entry is
@@ -147,11 +146,12 @@ foreach ($vm in $vmsToProvision) {
 
 # ---------------------------------------------------------------------------
 # 7. Virtual switch and NAT setup
-#    All VMs share one Internal switch (VmLAN). Idempotent - safe to re-run.
+#    Switch and NAT names come from the config (default: VmLAN / VmLAN-NAT).
+#    Idempotent - safe to re-run.
 # ---------------------------------------------------------------------------
 
-$switchName = 'VmLAN'
-$natName    = 'VmLAN-NAT'
+$switchName = $vmsToProvision[0].switchName
+$natName    = $vmsToProvision[0].natName
 
 Invoke-NetworkSetup -VmsToProvision $vmsToProvision `
                     -SwitchName     $switchName `

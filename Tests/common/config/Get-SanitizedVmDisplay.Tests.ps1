@@ -63,11 +63,9 @@ Describe 'Get-SanitizedVmDisplay' {
                 Should -Contain 'password'
         }
 
-        It 'returns fields in alphabetical order (Get-Member iteration order in PS 5.1)' {
-            # Get-Member -MemberType NoteProperty returns properties in
-            # alphabetical order in PS 5.1, regardless of the input object's
-            # insertion order. The function uses [ordered]@{} to preserve
-            # that order faithfully in the output.
+        It 'preserves insertion order of fields' {
+            # PSObject.Properties iterates in insertion order; [ordered]@{}
+            # in the function preserves that order faithfully in the output.
             $vm = [PSCustomObject][ordered]@{
                 vmName    = 'node-01'
                 ipAddress = '10.0.0.1'
@@ -75,9 +73,9 @@ Describe 'Get-SanitizedVmDisplay' {
             }
             $result = Get-SanitizedVmDisplay -Vm $vm
             $names = @($result.PSObject.Properties.Name)
-            $names[0] | Should -Be 'ipAddress'
-            $names[1] | Should -Be 'password'
-            $names[2] | Should -Be 'vmName'
+            $names[0] | Should -Be 'vmName'
+            $names[1] | Should -Be 'ipAddress'
+            $names[2] | Should -Be 'password'
         }
 
         It 'returns a PSCustomObject (not a hashtable or string)' {
