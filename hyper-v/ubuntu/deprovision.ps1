@@ -92,15 +92,15 @@ Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
 
 # ---------------------------------------------------------------------------
 # 4. Validate gateway consistency
-#    All VMs must share the same gateway - they were all attached to the same
-#    VmLAN Internal switch during provisioning. The gateway is needed to call
+#    All VMs must share the same gateway - they are all attached to the same
+#    Internal switch during provisioning. The gateway is needed to call
 #    Invoke-NetworkTeardown, so this check runs here rather than inside that
 #    function (which does not receive the full VM list).
 # ---------------------------------------------------------------------------
 
 $gatewayIp  = Assert-GatewayConsistency -VmDefs $vmDefs
-$switchName = 'VmLAN'
-$natName    = 'VmLAN-NAT'
+$switchName = $vmDefs[0].switchName
+$natName    = $vmDefs[0].natName
 
 # ---------------------------------------------------------------------------
 # 5. Per-VM removal

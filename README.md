@@ -104,6 +104,8 @@ All fields are required. After first boot, connect via `ssh username@ipAddress`.
 | `dns`           | string | DNS server IP                                      |
 | `vmConfigPath`  | string | Windows path where seed ISO is written             |
 | `vhdPath`       | string | Windows path where VHDX files are stored           |
+| `switchName`    | string | Hyper-V Internal switch name. Default: `VmLAN`     |
+| `natName`       | string | Windows NAT rule name. Default: `VmLAN-NAT`        |
 
 ---
 

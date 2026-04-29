@@ -60,6 +60,16 @@ function ConvertFrom-VmConfigJson {
             -Properties  $requiredFields `
             -Context     "VM '$(if ($vm.PSObject.Properties['vmName']) { $vm.vmName } else { '(unknown)' })'"`
 
+        # Apply defaults for optional fields. Using Add-Member rather than
+        # property assignment so the field is added when absent without
+        # overwriting an explicitly supplied value.
+        if (-not $vm.PSObject.Properties['switchName']) {
+            $vm | Add-Member -MemberType NoteProperty -Name switchName -Value 'VmLAN'
+        }
+        if (-not $vm.PSObject.Properties['natName']) {
+            $vm | Add-Member -MemberType NoteProperty -Name natName -Value 'VmLAN-NAT'
+        }
+
         # Output each validated VM object individually to the pipeline.
         # Callers collect via @(ConvertFrom-VmConfigJson ...).
         Write-Output $vm

@@ -147,11 +147,12 @@ foreach ($vm in $vmsToProvision) {
 
 # ---------------------------------------------------------------------------
 # 7. Virtual switch and NAT setup
-#    All VMs share one Internal switch (VmLAN). Idempotent - safe to re-run.
+#    Switch and NAT names come from the config (default: VmLAN / VmLAN-NAT).
+#    Idempotent - safe to re-run.
 # ---------------------------------------------------------------------------
 
-$switchName = 'VmLAN'
-$natName    = 'VmLAN-NAT'
+$switchName = $vmsToProvision[0].switchName
+$natName    = $vmsToProvision[0].natName
 
 Invoke-NetworkSetup -VmsToProvision $vmsToProvision `
                     -SwitchName     $switchName `

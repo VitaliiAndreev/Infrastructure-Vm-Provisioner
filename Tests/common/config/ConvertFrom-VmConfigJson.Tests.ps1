@@ -60,6 +60,25 @@ Describe 'ConvertFrom-VmConfigJson' {
             $result | Should -HaveCount 1
         }
 
+        It 'defaults switchName to VmLAN when absent' {
+            $result = @(ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]")
+            $result[0].switchName | Should -Be 'VmLAN'
+        }
+
+        It 'defaults natName to VmLAN-NAT when absent' {
+            $result = @(ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]")
+            $result[0].natName | Should -Be 'VmLAN-NAT'
+        }
+
+        It 'preserves explicit switchName and natName values' {
+            $custom = (New-ValidVmJson | ConvertFrom-Json)
+            $custom | Add-Member -MemberType NoteProperty -Name switchName -Value 'E2E-VmLAN'
+            $custom | Add-Member -MemberType NoteProperty -Name natName    -Value 'E2E-VmLAN-NAT'
+            $result = @(ConvertFrom-VmConfigJson -Json "[$(ConvertTo-Json $custom -Compress)]")
+            $result[0].switchName | Should -Be 'E2E-VmLAN'
+            $result[0].natName    | Should -Be 'E2E-VmLAN-NAT'
+        }
+
         It 'returns all VM objects for a multi-VM JSON array' {
             $json = "[$(New-ValidVmJson 'node-01'), $(New-ValidVmJson 'node-02')]"
             $result = @(ConvertFrom-VmConfigJson -Json $json)
