@@ -19,7 +19,7 @@ BeforeAll {
     function New-TestVm {
         [PSCustomObject]@{
             vmName       = 'node-01'
-            vmConfigPath = 'E:\a_VMs\Hyper-V\Config'
+            vmConfigPath = 'C:\a_VMs\Hyper-V\Config'
             username     = 'admin'
             ipAddress    = '192.168.1.10'
             cpuCount     = 2
@@ -94,7 +94,7 @@ Describe 'Invoke-VmCreation' {
                 $Generation         -eq 2                             -and
                 $MemoryStartupBytes -eq (4 * 1GB)                    -and
                 $VHDPath            -eq 'C:\VMs\node-01\node-01.vhdx' -and
-                $Path               -eq 'E:\a_VMs\Hyper-V\Config'
+                $Path               -eq 'C:\a_VMs\Hyper-V\Config'
             }
         }
 

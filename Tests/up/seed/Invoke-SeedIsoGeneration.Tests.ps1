@@ -9,7 +9,7 @@ BeforeAll {
     function New-TestVm {
         [PSCustomObject]@{
             vmName       = 'node-01'
-            vmConfigPath = 'E:\a_VMs\Hyper-V\Config'
+            vmConfigPath = 'C:\a_VMs\Hyper-V\Config'
             username     = 'admin'
             password     = 'P@ssw0rd'
             ipAddress    = '192.168.1.10'
@@ -32,7 +32,7 @@ Describe 'Invoke-SeedIsoGeneration' {
             Mock New-SeedIso {}
             Invoke-SeedIsoGeneration -Vm (New-TestVm)
             Should -Invoke New-Item -Times 1 -Exactly -ParameterFilter {
-                $ItemType -eq 'Directory' -and $Path -eq 'E:\a_VMs\Hyper-V\Config'
+                $ItemType -eq 'Directory' -and $Path -eq 'C:\a_VMs\Hyper-V\Config'
             }
         }
 
@@ -97,7 +97,7 @@ Describe 'Invoke-SeedIsoGeneration' {
             Mock New-SeedIso {}
             $vm = [PSCustomObject]@{
                 vmName       = 'node-01'
-                vmConfigPath = 'E:\a_VMs\Hyper-V\Config'
+                vmConfigPath = 'C:\a_VMs\Hyper-V\Config'
                 username     = 'domain\admin'
                 password     = 'P@ssw0rd'
                 ipAddress    = '192.168.1.10'
@@ -116,7 +116,7 @@ Describe 'Invoke-SeedIsoGeneration' {
             Mock New-SeedIso {}
             $vm = [PSCustomObject]@{
                 vmName       = 'node-01'
-                vmConfigPath = 'E:\a_VMs\Hyper-V\Config'
+                vmConfigPath = 'C:\a_VMs\Hyper-V\Config'
                 username     = 'admin'
                 password     = 'P@ss"word'
                 ipAddress    = '192.168.1.10'
@@ -213,7 +213,7 @@ Describe 'Invoke-SeedIsoGeneration' {
             Mock New-SeedIso {}
             Invoke-SeedIsoGeneration -Vm (New-TestVm)
             Should -Invoke New-SeedIso -ParameterFilter {
-                $OutputPath -eq 'E:\a_VMs\Hyper-V\Config\node-01-seed.iso'
+                $OutputPath -eq 'C:\a_VMs\Hyper-V\Config\node-01-seed.iso'
             }
         }
     }
@@ -227,7 +227,7 @@ Describe 'Invoke-SeedIsoGeneration' {
             Mock New-SeedIso {}
             $vm = New-TestVm
             Invoke-SeedIsoGeneration -Vm $vm
-            $vm._seedIsoPath | Should -Be 'E:\a_VMs\Hyper-V\Config\node-01-seed.iso'
+            $vm._seedIsoPath | Should -Be 'C:\a_VMs\Hyper-V\Config\node-01-seed.iso'
         }
     }
 }
