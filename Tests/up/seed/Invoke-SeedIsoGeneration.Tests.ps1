@@ -227,7 +227,7 @@ Describe 'Invoke-SeedIsoGeneration' {
             Mock New-SeedIso {}
             $vm = New-TestVm
             Invoke-SeedIsoGeneration -Vm $vm
-            $vm._seedIsoPath | Should -Be 'C:\VMs\node-01\node-01-seed.iso'
+            $vm._seedIsoPath | Should -Be 'E:\a_VMs\Hyper-V\Config\node-01-seed.iso'
         }
     }
 }

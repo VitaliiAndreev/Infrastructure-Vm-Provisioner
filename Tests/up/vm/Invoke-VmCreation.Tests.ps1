@@ -94,7 +94,7 @@ Describe 'Invoke-VmCreation' {
                 $Generation         -eq 2                             -and
                 $MemoryStartupBytes -eq (4 * 1GB)                    -and
                 $VHDPath            -eq 'C:\VMs\node-01\node-01.vhdx' -and
-                $Path               -eq 'C:\VMs\node-01'
+                $Path               -eq 'E:\a_VMs\Hyper-V\Config'
             }
         }
 
