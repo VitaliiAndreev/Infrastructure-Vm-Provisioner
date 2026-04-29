@@ -19,7 +19,7 @@ BeforeAll {
     function New-TestVm {
         [PSCustomObject]@{
             vmName       = 'node-01'
-            vmConfigPath = 'C:\VMs\node-01'
+            vmConfigPath = 'E:\a_VMs\Hyper-V\Config'
             username     = 'admin'
             ipAddress    = '192.168.1.10'
             cpuCount     = 2

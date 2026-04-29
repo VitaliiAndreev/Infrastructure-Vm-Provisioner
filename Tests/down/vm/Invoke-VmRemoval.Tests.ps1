@@ -14,8 +14,8 @@ BeforeAll {
     function New-TestVm {
         [PSCustomObject]@{
             vmName       = 'node-01'
-            vhdPath      = 'D:\Hyper-V\Disks'
-            vmConfigPath = 'D:\Hyper-V\Config'
+            vhdPath      = 'E:\a_VMs\Hyper-V\Disks'
+            vmConfigPath = 'E:\a_VMs\Hyper-V\Config'
         }
     }
 

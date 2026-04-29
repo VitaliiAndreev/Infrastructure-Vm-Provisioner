@@ -33,8 +33,8 @@ BeforeAll {
     "subnetMask":    "255.255.255.0",
     "gateway":       "10.0.0.1",
     "dns":           "8.8.8.8",
-    "vmConfigPath":  "C:\\VMs\\$vmName",
-    "vhdPath":       "C:\\VHDs"
+    "vmConfigPath":  "E:\\a_VMs\\Hyper-V\\Config",
+    "vhdPath":       "E:\\a_VMs\\Hyper-V\\Disks"
 }
 "@
     }

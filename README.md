@@ -81,8 +81,8 @@ Re-running safely updates the stored config.
     "subnetMask":    "24",
     "gateway":       "192.168.1.1",
     "dns":           "8.8.8.8",
-    "vmConfigPath":  "D:\\Hyper-V\\Config",
-    "vhdPath":       "D:\\Hyper-V\\Disks"
+    "vmConfigPath":  "E:\\a_VMs\\Hyper-V\\Config",
+    "vhdPath":       "E:\\a_VMs\\Hyper-V\\Disks"
   }
 ]
 ```
