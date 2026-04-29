@@ -5,6 +5,7 @@
 ## Index
 
 - [Overview](#overview)
+- [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [setup-secrets.ps1](#setup-secretsps1)
 - [provision.ps1](#provisionps1)
@@ -27,9 +28,15 @@ stored in an AES-256 encrypted local vault scoped to the Windows user account
 
 ---
 
+## Requirements
+
+PowerShell 7+ (`pwsh`). Windows PowerShell 5.1 is not supported.
+
+---
+
 ## Quick start
 
-**Prerequisites:** Windows 11 with Hyper-V enabled, PowerShell 5.1+, and
+**Prerequisites:** Windows 11 with Hyper-V enabled, PowerShell 7+, and
 Administrator privileges. WSL2 is installed automatically by `provision.ps1`
 on first run if not already present (a reboot may be required).
 `Infrastructure.Common` and `Infrastructure.Secrets` are installed from
@@ -194,7 +201,7 @@ which delegates to the shared reusable workflow in
 VitaliiAndreev/Infrastructure-Common/.github/workflows/ci-powershell.yml@master
 ```
 
-The shared workflow runs `Run-Tests.ps1` on both PowerShell 5.1 and 7.
+The shared workflow runs `Run-Tests.ps1` on PowerShell 7.
 No additional CI configuration is needed in this repo.
 
 ---

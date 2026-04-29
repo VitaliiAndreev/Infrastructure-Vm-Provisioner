@@ -17,8 +17,7 @@
     - Run as Administrator (Hyper-V cmdlets require elevation).
     - Microsoft.PowerShell.SecretManagement + Microsoft.PowerShell.SecretStore
       installed by setup-secrets.ps1.
-    - PowerShell 5.1 (ships with Windows 11) or later. PS 7 is recommended
-      but not required.
+    - PowerShell 7+.
 
     IDEMPOTENCY
     - If a VM in the config is not found in Hyper-V, its Hyper-V teardown is
