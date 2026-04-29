@@ -21,7 +21,7 @@ function Get-SanitizedVmDisplay {
     )
 
     $safe = [ordered]@{}
-    foreach ($member in (Get-Member -InputObject $Vm -MemberType NoteProperty)) {
+    foreach ($member in $Vm.PSObject.Properties) {
         $safe[$member.Name] = if ($member.Name -in $Script:SecretFields) {
             '***'
         } else {

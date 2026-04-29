@@ -144,7 +144,6 @@ function Invoke-BaseImagePatch {
         # The script is encoded as base64 so it can be passed to WSL as a
         # single argument to 'echo', avoiding:
         #   - temp file path issues (spaces, /mnt/c/ permission gaps)
-        #   - BOM injected by PowerShell 5.1 when piping to stdin
         #   - wsl.exe argument-splitting on multi-word -c strings
         # Base64 is [A-Za-z0-9+/=] only - safe as an unquoted sh arg.
         $patchScriptLines = @(

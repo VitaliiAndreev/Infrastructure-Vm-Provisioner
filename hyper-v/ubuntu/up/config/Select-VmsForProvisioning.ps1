@@ -33,8 +33,8 @@ function Select-VmsForProvisioning {
 
         # ------------------------------------------------------------------
         # Check a) VM existence
-        # Get-VM throws on a missing name in PS 5.1 without -ErrorAction, so
-        # SilentlyContinue is required to get a $null return instead.
+        # Get-VM throws on a missing name without -ErrorAction;
+        # SilentlyContinue returns $null instead.
         # ------------------------------------------------------------------
         $existing = Get-VM -Name $vm.vmName -ErrorAction SilentlyContinue
         if ($null -ne $existing) {
@@ -66,8 +66,8 @@ function Select-VmsForProvisioning {
 #   Returns $true if the IP address responds to a ping within 1000 ms.
 #
 #   [System.Net.NetworkInformation.Ping] is used instead of Test-Connection
-#   because Test-Connection's -TimeoutSeconds parameter was only added in
-#   PS 7. The .NET API works identically on PS 5.1 and PS 7.
+#   for predictability: Test-Connection returns rich objects and requires
+#   -Count 1; the .NET API is a direct call with a clear return value.
 # ---------------------------------------------------------------------------
 function Test-IpAddressInUse {
     [CmdletBinding()]

@@ -48,13 +48,7 @@ function ConvertFrom-VmConfigJson {
     )
 
     foreach ($vm in $vmDefs) {
-        # Get-Member -MemberType NoteProperty is the reliable way to enumerate
-        # properties created by ConvertFrom-Json in PS 5.1 and PS 7.
-        # PSObject.Properties-based lookups can return unexpected results in
-        # PS 5.1 depending on how the object was constructed.
         # Assert-RequiredProperties is provided by Infrastructure.Common.
-        # It handles the PS 5.1-compatible Get-Member loop and IsNullOrWhiteSpace
-        # cast so this file does not need to duplicate that logic.
         Assert-RequiredProperties `
             -Object      $vm `
             -Properties  $requiredFields `
