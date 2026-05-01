@@ -1,4 +1,4 @@
-name: E2E (PR check)
+name: E2E
 
 # Calls the shared E2E workflow in Infrastructure-E2E as a required PR check.
 # Always runs the full lifecycle layer - a provisioner change can cascade to
