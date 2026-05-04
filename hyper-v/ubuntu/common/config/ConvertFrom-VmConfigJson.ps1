@@ -10,8 +10,8 @@
 #   Throws a descriptive error on any problem.
 #
 #   Outputs each validated VM definition object to the pipeline. Callers
-#   must wrap the call in @() to collect the result as an array:
-#       $vmDefs = @(ConvertFrom-VmConfigJson -Json $json)
+#   must use ConvertTo-Array to collect the result as an array:
+#       $vmDefs = ConvertTo-Array (ConvertFrom-VmConfigJson -Json $json)
 #
 #   Centralised here so the required-field list has a single source of
 #   truth - update it once when the config schema changes.

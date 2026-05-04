@@ -17,8 +17,8 @@
 #      are difficult to diagnose from inside the VM.
 #
 #   VMs that pass both checks are written to the pipeline. Collect with
-#   @(Select-VmsForProvisioning ...) to guarantee an array when one VM
-#   is returned.
+#   ConvertTo-Array (Select-VmsForProvisioning ...) to guarantee an array
+#   when one VM is returned.
 # ---------------------------------------------------------------------------
 function Select-VmsForProvisioning {
     [CmdletBinding()]
