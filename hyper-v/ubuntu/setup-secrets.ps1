@@ -71,7 +71,7 @@ Initialize-MicrosoftPowerShellSecretStoreVault `
     @PSBoundParameters `
     -Validate {
         param($json)
-        $defs = @(ConvertFrom-VmConfigJson -Json $json)
+        $defs = ConvertTo-Array (ConvertFrom-VmConfigJson -Json $json)
         Write-Host "[OK] JSON validated - $($defs.Count) VM definition(s) found." `
             -ForegroundColor Green
     }

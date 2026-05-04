@@ -85,7 +85,7 @@ $configJson = Get-Secret -Vault $vaultName -Name $secretName `
 #    discovering a missing field mid-deprovisioning.
 # ---------------------------------------------------------------------------
 
-$vmDefs = @(ConvertFrom-VmConfigJson -Json $configJson)
+$vmDefs = ConvertTo-Array (ConvertFrom-VmConfigJson -Json $configJson)
 Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
     -ForegroundColor Green
 

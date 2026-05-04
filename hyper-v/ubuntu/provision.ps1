@@ -85,7 +85,7 @@ $configJson = Get-Secret -Vault $vaultName -Name $secretName `
 #    discovering a missing field mid-provisioning.
 # ---------------------------------------------------------------------------
 
-$vmDefs = @(ConvertFrom-VmConfigJson -Json $configJson)
+$vmDefs = ConvertTo-Array (ConvertFrom-VmConfigJson -Json $configJson)
 Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
     -ForegroundColor Green
 
@@ -96,7 +96,7 @@ Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
 #      b) no machine already responding to the target ipAddress
 # ---------------------------------------------------------------------------
 
-$vmsToProvision = @(Select-VmsForProvisioning -VmDefs $vmDefs)
+$vmsToProvision = ConvertTo-Array (Select-VmsForProvisioning -VmDefs $vmDefs)
 
 Write-Host ""
 
