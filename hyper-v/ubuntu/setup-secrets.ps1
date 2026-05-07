@@ -55,7 +55,7 @@ if (-not $_nuget -or $_nuget.Version -lt [Version]'2.8.5.201') {
 }
 $_common = Get-Module -ListAvailable -Name Infrastructure.Common |
     Sort-Object Version -Descending | Select-Object -First 1
-if (-not $_common -or $_common.Version -lt [Version]'2.1.0') {
+if (-not $_common -or $_common.Version -lt [Version]'3.0.0') {
     Install-Module Infrastructure.Common -Scope CurrentUser -Force
 }
 Import-Module Infrastructure.Common -Force -ErrorAction Stop
