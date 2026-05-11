@@ -46,9 +46,15 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\up\vm\create-vm.ps1"
 
 # ---------------------------------------------------------------------------
-# 1. Ensure SecretManagement modules are loaded
-#    Import only - provisioning should have no side effects on the module
-#    environment. Installing modules is setup-secrets.ps1's responsibility.
+# 1. Install / import every required module via the centralised helper.
+#    Dot-source so the imports land in this script's scope.
+# ---------------------------------------------------------------------------
+
+. "$PSScriptRoot\Install-ModuleDependencies.ps1"
+
+# ---------------------------------------------------------------------------
+# 2. Ensure the SecretStore vault provider modules are loaded.
+#    setup-secrets.ps1 installs them; provisioning is import-only.
 # ---------------------------------------------------------------------------
 
 foreach ($mod in @(
@@ -62,7 +68,7 @@ foreach ($mod in @(
 }
 
 # ---------------------------------------------------------------------------
-# 2. Read VmProvisionerConfig from the local vault
+# 3. Read VmProvisionerConfig from the local vault
 # ---------------------------------------------------------------------------
 
 $vaultName  = 'VmProvisioner'
@@ -79,7 +85,7 @@ $configJson = Get-Secret -Vault $vaultName -Name $secretName `
     -AsPlainText -ErrorAction Stop
 
 # ---------------------------------------------------------------------------
-# 3. Parse and validate JSON
+# 4. Parse and validate JSON
 #    Done here (not relying solely on setup-secrets.ps1) because the vault
 #    could hold stale or manually-edited data. Failing fast is safer than
 #    discovering a missing field mid-provisioning.
@@ -90,7 +96,7 @@ Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
     -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# 4. Idempotency and safety checks
+# 5. Idempotency and safety checks
 #    Filters $vmDefs down to VMs that are safe to provision:
 #      a) no existing Hyper-V VM with the same vmName
 #      b) no machine already responding to the target ipAddress
@@ -110,9 +116,9 @@ Write-Host "$($vmsToProvision.Count) VM(s) queued for provisioning." `
     -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# 5. Disk image acquisition
+# 6. Disk image acquisition
 #    Downloads, converts, patches, and copies the per-VM VHDX.
-#    Sets $vm._vhdxPath on each object for use in step 8.
+#    Sets $vm._vhdxPath on each object for use in step 9.
 #
 #    Invoke-BaseImagePatch (called internally) throws a 'Wsl2NotReady:'
 #    error if WSL2 is not yet installed or initialised. We catch it here
@@ -135,9 +141,9 @@ foreach ($vm in $vmsToProvision) {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Cloud-init seed ISO generation
+# 7. Cloud-init seed ISO generation
 #    Builds meta-data, user-data, and network-config; writes the ISO.
-#    Sets $vm._seedIsoPath on each object for use in step 8.
+#    Sets $vm._seedIsoPath on each object for use in step 9.
 # ---------------------------------------------------------------------------
 
 foreach ($vm in $vmsToProvision) {
@@ -145,7 +151,7 @@ foreach ($vm in $vmsToProvision) {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Virtual switch and NAT setup
+# 8. Virtual switch and NAT setup
 #    Switch and NAT names come from the config (default: VmLAN / VmLAN-NAT).
 #    Idempotent - safe to re-run.
 # ---------------------------------------------------------------------------
@@ -158,7 +164,7 @@ Invoke-NetworkSetup -VmsToProvision $vmsToProvision `
                     -NatName        $natName
 
 # ---------------------------------------------------------------------------
-# 8. VM creation
+# 9. VM creation
 #    Creates, configures, boots each VM, and waits for SSH readiness.
 # ---------------------------------------------------------------------------
 
