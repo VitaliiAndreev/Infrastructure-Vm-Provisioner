@@ -17,6 +17,10 @@ BeforeAll {
 
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\common\config\ConvertFrom-VmConfigJson.ps1"
 
+    # ConvertFrom-VmConfigJson.ps1 dot-sources Assert-JavaDevKitField.ps1, so
+    # the real function is in scope. The wiring test below mocks it; behaviour
+    # cases live in Assert-JavaDevKitField.Tests.ps1.
+
     # Builds a minimal valid VM definition with all required fields populated.
     # Individual tests override specific fields as needed.
     function New-ValidVmJson([string] $vmName = 'node-01') {
@@ -161,6 +165,27 @@ Describe 'ConvertFrom-VmConfigJson' {
             Mock Assert-RequiredProperties { throw "missing required field 'ipAddress'" }
             { ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]" } |
                 Should -Throw -ExpectedMessage "*missing required field*"
+        }
+    }
+
+    # ------------------------------------------------------------------
+    Context 'Assert-JavaDevKitField wiring' {
+    # ------------------------------------------------------------------
+
+        It 'invokes Assert-JavaDevKitField once per VM' {
+            # Wiring-only check. Behaviour cases for the validator itself
+            # live in Assert-JavaDevKitField.Tests.ps1 - duplicating them
+            # here would couple the caller's tests to its callee's rules.
+            Mock Assert-JavaDevKitField {}
+            $json = "[$(New-ValidVmJson 'node-01'), $(New-ValidVmJson 'node-02')]"
+            @(ConvertFrom-VmConfigJson -Json $json)
+            Should -Invoke Assert-JavaDevKitField -Times 2 -Exactly
+        }
+
+        It 'propagates a throw from Assert-JavaDevKitField' {
+            Mock Assert-JavaDevKitField { throw "javaDevKit.version must be a string" }
+            { ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]" } |
+                Should -Throw -ExpectedMessage "*javaDevKit*"
         }
     }
 

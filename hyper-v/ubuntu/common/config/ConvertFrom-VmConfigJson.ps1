@@ -4,6 +4,11 @@
     provision.ps1 and setup-secrets.ps1 after Infrastructure.Common is loaded.
 #>
 
+# Sibling validators dot-sourced here so callers of ConvertFrom-VmConfigJson
+# do not need to know which individual rule files exist - this file is the
+# single entry point for the config schema.
+. "$PSScriptRoot\Assert-JavaDevKitField.ps1"
+
 # ---------------------------------------------------------------------------
 # ConvertFrom-VmConfigJson
 #   Parses a VM provisioner JSON string and validates its structure.
@@ -53,6 +58,10 @@ function ConvertFrom-VmConfigJson {
             -Object      $vm `
             -Properties  $requiredFields `
             -Context     "VM '$(if ($vm.PSObject.Properties['vmName']) { $vm.vmName } else { '(unknown)' })'"`
+
+        # Optional-field validators. Each one is a no-op when its field is
+        # absent and throws with a descriptive message when present-but-malformed.
+        Assert-JavaDevKitField -Vm $vm
 
         # Apply defaults for optional fields. Using Add-Member rather than
         # property assignment so the field is added when absent without
