@@ -120,9 +120,10 @@ function Invoke-VmCreation {
     # Leaving it on disk is never acceptable - it contains the plaintext
     # password.
     #
-    # [System.Net.Sockets.TcpClient] is used instead of Test-NetConnection
-    # for predictability: the .NET API gives a direct bool result without
-    # parsing cmdlet output objects.
+    # The outer loop is kept inline (rather than calling Wait-VmSshReady)
+    # because each iteration also checks Get-VM state - a Hyper-V cmdlet
+    # concern that does not belong in a generic SSH helper. The TCP probe
+    # itself is delegated to Test-VmSshPort.
     # ------------------------------------------------------------------
     $timeoutMinutes      = 10
     $pollIntervalSeconds = 10
@@ -144,18 +145,11 @@ function Invoke-VmCreation {
                 )
             }
 
-            $tcpClient = $null
-            try {
-                $tcpClient = [System.Net.Sockets.TcpClient]::new()
-                if ($tcpClient.ConnectAsync($Vm.ipAddress, 22).Wait(2000)) {
-                    $sshReady = $true
-                    break
-                }
+            if (Test-VmSshPort -IpAddress $Vm.ipAddress -Port 22) {
+                $sshReady = $true
+                break
             }
-            catch { }
-            finally {
-                if ($null -ne $tcpClient) { $tcpClient.Dispose() }
-            }
+
             Write-Host '.' -NoNewline
             Start-Sleep -Seconds $pollIntervalSeconds
         }
