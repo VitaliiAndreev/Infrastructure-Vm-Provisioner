@@ -209,15 +209,18 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
    patched base image — no re-download or re-patch.
 5. Copies the base image to a per-VM disk (`{vmName}.vhdx`) and resizes it
    to `diskGB`.
-6. Generates a cloud-init seed ISO (`{vmName}-seed.iso`) in `vmConfigPath`
+6. If the VM entry has a `javaDevKit` field, acquires the requested Temurin
+   tarball into `vhdPath` (see [Optional: install a JDK](#optional-install-a-jdk)).
+   Skipped entirely for VMs without `javaDevKit` - no network, no log noise.
+7. Generates a cloud-init seed ISO (`{vmName}-seed.iso`) in `vmConfigPath`
    containing `meta-data`, `user-data`, and `network-config`. On first boot
    cloud-init reads the ISO to create the OS user, enable SSH, and apply the
-   static IP — no interactive installer needed.
-7. Creates a Hyper-V Internal switch named `VmLAN` (if absent),
+   static IP - no interactive installer needed.
+8. Creates a Hyper-V Internal switch named `VmLAN` (if absent),
    assigns the `gateway` IP to the host-side virtual NIC, and adds a
    `New-NetNat` rule for the subnet so VMs can reach the internet through
    the host. The host reaches VMs at their static IPs via the same vNIC.
-8. Creates each VM (Gen 2, static RAM, VHDX from step 5), sets Secure Boot
+9. Creates each VM (Gen 2, static RAM, VHDX from step 5), sets Secure Boot
    to `MicrosoftUEFICertificateAuthority` (required for Ubuntu), attaches
    the seed ISO, connects to `VmLAN`, and starts the VM. Polls port 22
    until cloud-init finishes, then detaches and deletes the seed ISO.
