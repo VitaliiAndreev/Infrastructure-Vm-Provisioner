@@ -10,6 +10,7 @@ See [problem.md](problem.md) for context, schema, and rationale.
 - [Step 3 - Host-side prefetch and cache](#step-3---host-side-prefetch-and-cache)
 - [Step 4 - Wire prefetch into `provision.ps1`](#step-4---wire-prefetch-into-provisionps1)
 - [Step 5 - Cloud-init delivery and install](#step-5---cloud-init-delivery-and-install)
+- [Step 6 - E2E test coverage for the JDK path](#step-6---e2e-test-coverage-for-the-jdk-path)
 
 ---
 
@@ -344,3 +345,111 @@ graph TD
 - Cross-reference Infrastructure-Vm-Users in the relevant section so an
   operator reading either repo's README understands the split of
   responsibilities.
+
+---
+
+## Step 6 - E2E test coverage for the JDK path
+
+**Reason:** The E2E agent already provisions a real VM end-to-end via
+[Invoke-VmProvisioningTest.ps1](../../../../../Infrastructure-E2E/agent/e2e/vm-provisioning/Invoke-VmProvisioningTest.ps1).
+Extending that test to always exercise the new JDK path catches regressions
+that unit tests cannot: an Adoptium API contract change, a botched cloud-init
+runcmd, a `$JAVA_HOME` that does not propagate to non-login shells, etc.
+
+Always-on (not gated on operator opt-in) so every E2E run validates the JDK
+flow. The cost is one extra Adoptium download per cache miss, which the
+host-side cache from Step 3 amortises across runs.
+
+**Files** (live in the Infrastructure-E2E repo, not this one)
+
+- `agent/e2e/vm-provisioning/Invoke-VmProvisioningTest.ps1` -
+  - `Invoke-VmProvisioningSetup`: hard-code a `javaDevKit` block into the
+    `$vmEntry` written to the vault. Vendor `temurin`, version `"21"`
+    (latest GA of feature release 21). Also surface the requested version
+    on the returned `vmDef` so the assertion block can read it without
+    re-parsing the vault.
+  - `Invoke-VmProvisioningTest`: after the existing `hostname` /
+    `cloud-init` / `df` assertions, add a JDK assertion block (see
+    behaviour below).
+- `Tests/Invoke-E2EAgentLoop.Tests.ps1` - if any existing unit-level mock of
+  the provisioning setup asserts the shape of the vault entry, extend it to
+  expect the new `javaDevKit` field. Otherwise no change.
+
+**Behaviour (JDK assertion block in `Invoke-VmProvisioningTest`)**
+
+Runs over the same `$sshClient` already opened for the existing assertions.
+All commands are issued via `Invoke-SshClientCommand`. Each assertion
+throws with a clear, actionable message naming the VM and the observed
+value on failure.
+
+1. **`JAVA_HOME` is set under a login shell** -
+   `bash -lc 'echo $JAVA_HOME'` must exit 0 and produce a non-empty value
+   that starts with `/opt/jdk-temurin-`. Confirms `/etc/profile.d/jdk.sh`
+   from Step 5 was written and is sourced by login shells.
+2. **`java` is on `PATH` for both login and non-login shells** -
+   - `bash -lc 'command -v java'` must exit 0 and resolve to a path under
+     the `$JAVA_HOME` reported in (1). Confirms login-shell PATH wiring.
+   - `bash -c 'command -v java'` must also resolve to a `java` binary
+     under the same prefix. Confirms the install is reachable from
+     non-login shells too (relevant because services and `ssh user@host
+     command` invocations are non-login).
+3. **`java -version` succeeds and matches the requested version** -
+   `java -version` must exit 0. The combined stdout/stderr output must
+   contain the requested version string from the vmEntry's `javaDevKit`
+   block (e.g. `"21"`). The match is a prefix check, not exact equality,
+   because the resolver legitimately upgrades `"21"` to a concrete build
+   like `21.0.6+7` and `java -version` reports the concrete value.
+
+   Requested version is read from `$vmDef.javaDevKit.version` (added by
+   the setup function above), not from the lockfile. The lockfile lives
+   on the host and is the resolver's pin; the JSON is what the operator
+   asked for, which is the contract this E2E should defend.
+
+**Throw cases** (anything unexpected aborts the test - the finally block
+still runs teardown):
+
+- `JAVA_HOME` empty or not under `/opt/jdk-temurin-`.
+- `command -v java` returns empty, non-zero exit, or a path outside
+  `$JAVA_HOME/bin`.
+- `java -version` exits non-zero, or its output does not contain the
+  requested version prefix.
+
+**Tests (no new Pester tests)**
+
+E2E is the test layer. The mock-level unit test in
+`Tests/Invoke-E2EAgentLoop.Tests.ps1` already covers the agent loop
+plumbing; no behavioural duplication of the new assertions there.
+
+**Diagram**
+
+```mermaid
+sequenceDiagram
+    participant E2E as Invoke-VmProvisioningTest
+    participant Vault as SecretStore
+    participant Prov as provision.ps1
+    participant VM as e2e-test (Ubuntu)
+
+    E2E->>Vault: write vmEntry with javaDevKit=temurin/21
+    E2E->>Prov: run provision.ps1
+    Prov->>Prov: Invoke-JdkAcquisition (host cache)
+    Prov->>VM: cloud-init runcmd extracts tarball
+    Prov-->>E2E: VM reachable on SSH
+
+    E2E->>VM: bash -lc 'echo $JAVA_HOME'
+    VM-->>E2E: /opt/jdk-temurin-21.0.6+7
+    E2E->>VM: bash -lc 'command -v java'
+    VM-->>E2E: /opt/jdk-temurin-21.0.6+7/bin/java
+    E2E->>VM: bash -c 'command -v java'
+    VM-->>E2E: /opt/jdk-temurin-21.0.6+7/bin/java
+    E2E->>VM: java -version
+    VM-->>E2E: openjdk version "21.0.6"...
+    E2E->>E2E: assert prefix "21" matches
+```
+
+**README update** (Infrastructure-E2E, not this repo)
+
+- In the E2E README's test description, note that the VM provisioning E2E
+  also asserts the JDK install path: `JAVA_HOME` shape, `java` on `PATH`
+  in both login and non-login shells, and `java -version` matching the
+  requested version. Mention that the requested version is hard-coded to
+  `temurin/21` so the assertion is stable across operator workstations.
