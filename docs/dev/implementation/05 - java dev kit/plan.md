@@ -4,23 +4,12 @@ See [problem.md](problem.md) for context, schema, and rationale.
 
 ## Index
 
-- [Decisions Locked](#decisions-locked)
 - [Step 1 - Schema validation for `javaDevKit`](#step-1---schema-validation-for-javadevkit)
 - [Step 2 - Adoptium version resolver](#step-2---adoptium-version-resolver)
 - [Step 3 - Host-side prefetch and cache](#step-3---host-side-prefetch-and-cache)
 - [Step 4 - Wire prefetch into `provision.ps1`](#step-4---wire-prefetch-into-provisionps1)
-- [Step 5 - Cloud-init delivery and install](#step-5---cloud-init-delivery-and-install)
+- [Step 5 - Out-of-band post-provisioning pipeline](#step-5---out-of-band-post-provisioning-pipeline)
 - [Step 6 - E2E test coverage for the JDK path](#step-6---e2e-test-coverage-for-the-jdk-path)
-
----
-
-## Decisions Locked
-
-- Lockfile is a host-side cache artifact only. Not committed. Same trust model
-  as the cached Ubuntu VHDX.
-- `javaDevKit.version` must be a string. Numeric JSON values are rejected by
-  the schema check. See the prior conversation for the rationale (trailing-zero
-  loss, `21.0.5+11` is not a valid JSON number, single-type schema).
 
 ---
 
@@ -30,6 +19,14 @@ See [problem.md](problem.md) for context, schema, and rationale.
 the schema contract the later steps depend on. Validation lives in its own
 function so `ConvertFrom-VmConfigJson` stays a thin orchestrator and the new
 rule set is independently testable.
+
+**Decisions locked**
+
+- `javaDevKit.version` must be a **string**. Numeric JSON values are
+  rejected by the schema check. Reason: trailing-zero loss (`"21.0"`
+  cannot survive as distinct from `21` once parsed as a number) and
+  `21.0.5+11` is not a valid JSON number at all - "string only" is the
+  single consistent rule.
 
 **Files**
 
@@ -147,6 +144,11 @@ sequenceDiagram
 
 **Reason:** Materialise the tarball on the host with checksum verification
 and a sidecar lockfile so re-provisioning is deterministic and offline-safe.
+
+**Decisions locked**
+
+- The lockfile is a **host-side cache artifact only**. Not committed.
+  Same trust model as the cached Ubuntu VHDX.
 
 **Files**
 
@@ -278,70 +280,212 @@ graph LR
   acquisition step is mentioned) to show the new conditional JDK
   acquisition slot between disk acquisition and seed-ISO generation.
 
-**Reason:** Get the prefetched tarball onto the VM and extracted system-wide
-so any user account (including those later created by Infrastructure-Vm-Users)
-sees `JAVA_HOME` and `$JAVA_HOME/bin` on `PATH`.
+## Step 5 - Out-of-band post-provisioning pipeline
+
+**Reason:** Get the prefetched JDK tarball onto the VM (and any other
+user-declared files) without putting cloud-init in charge of the install.
+cloud-init's job is to stand up the OS; the provisioner installs optional
+software. Same separation already used by `register-runners.ps1`
+(GitHubRunners repo) and `reconcile-users.ps1` (Vm-Users repo).
+
+**Decisions locked**
+
+- JDK is installed **out-of-band, after cloud-init finishes**, not via
+  cloud-init `runcmd` reading from the seed ISO. The cidata ISO is a
+  cloud-init metadata channel, not a file-delivery channel; routing the
+  tarball through it would force the seed-ISO lifecycle to span the
+  entire cloud-init run, widen the plaintext-password exposure window,
+  and put cloud-init stage knowledge into the host provisioner. The
+  chosen mechanism mirrors the existing `register-runners.ps1` pattern:
+  `Invoke-WithVmFileServer` / `Add-VmFileServerFile` plus SSH from the
+  host.
+- Post-provisioning is structured as **one orchestrator + N
+  self-contained step functions**, not one self-contained per-software
+  function. The transport (host file server + SSH session + cloud-init
+  wait) is a per-VM concern that should be paid once, not per step.
+  With two known callers in flight (JDK install, generic file copy)
+  the right shape is visible. Each step receives a live `$SshClient` +
+  `$Server` from the orchestrator; steps are forbidden from depending
+  on each other's outputs so dispatch order is not load-bearing and
+  any step can be re-run in isolation.
+- The optional `files` array is **purely user data** - no install step
+  reads from the paths it writes. Each install owns its own
+  acquisition + transfer + extraction. This keeps install descriptors
+  (`javaDevKit`, future `maven`, ...) orthogonal: none reaches into
+  another's space, and the `files` shape never has to grow
+  install-aware semantics.
+- `Copy-VmFiles` (the transport) and `Assert-VmFilesField` (the shared
+  schema validator) live in **Infrastructure.HyperV**, not in this
+  repo. `Infrastructure-Vm-Users` will need the same primitives for
+  its own (user-owned) file copies, and duplicating them across repos
+  would drift over time. Each consumer extends the shared validator
+  via `-AllowedSubFields` / `-PostEntryValidator`; the consumer's
+  wrapper is ~5 lines of policy on top of ~50 lines of shared shape
+  checks.
+- The provisioner's `files` policy is **root-owned, world-readable**
+  (`root:root, 0644`). The provisioner runs *before*
+  Infrastructure-Vm-Users creates app users, so no per-user owner
+  exists to chown to. Files that need per-user ownership belong in
+  Vm-Users' `files` (a future addition). The provisioner's schema
+  therefore rejects `owner` / `mode` sub-fields by way of
+  `Assert-VmFilesField`'s default allow-list - no
+  `PostEntryValidator` is supplied here.
+- The JDK tarball deliberately does NOT route through the generic
+  `files` flow. (a) The tarball is transient (extract-then-discard)
+  while user `files` are persistent at user-declared paths - mixing
+  them would force a "delete after use" semantic into the descriptor.
+  (b) The JDK install streams `curl | tar` so the tarball never
+  lands on the VM disk; routing through `files` would give that up
+  for symmetry alone.
+
+The shape is **one orchestrator + N self-contained step functions**, not a
+single per-software function. Reasons:
+
+- The transport (host file server + SSH session + cloud-init wait) is a
+  per-VM concern that should be paid once, not per step.
+- A second use case (copying user-declared JARs onto the VM via a `files`
+  array) is already known. With two callers, the right shape is visible:
+  share transport, keep step logic local.
+- Each step is **self-contained** - it must NOT consume files left on the
+  VM by another step. If a future install needs an artefact, it acquires
+  and ships its own copy. This keeps steps independently re-runnable and
+  dispatch order non-load-bearing.
 
 **Files**
 
-- `hyper-v/ubuntu/up/seed/generate-seed-iso.ps1` - when `_jdkTarballPath` is
-  set on the VM, copy the tarball into the ISO staging directory and append
-  a `runcmd` block + `write_files` entry for `/etc/profile.d/jdk.sh`.
-- `hyper-v/ubuntu/up/seed/iso.ps1` - confirm `New-SeedIso` already includes
-  arbitrary files in the staging dir; extend only if it filters by name.
-- `Tests/up/seed/*.Tests.ps1` - new cases asserting the generated user-data
-  contains the install commands when `_jdkTarballPath` is set, and does not
-  when it is unset.
+- `hyper-v/ubuntu/up/post/Invoke-VmPostProvisioning.ps1` (new) - per-VM
+  orchestrator. Opens the file server with `Invoke-WithVmFileServer`,
+  opens one SSH client, waits once for cloud-init, dispatches each
+  enabled step. Exits silently when no opt-in fields are set.
+- `hyper-v/ubuntu/up/post/Install-Jdk.ps1` (new) - JDK install step.
+  Receives a live `$SshClient` and `$Server` from the orchestrator,
+  stages the prefetched tarball via `Add-VmFileServerFile`, and runs
+  `curl URL | sudo tar -xzf - --strip-components=1 -C /opt/jdk-*` plus
+  the `/etc/profile.d/jdk.sh` write. Streaming pattern - no intermediate
+  file on the VM disk.
+- `hyper-v/ubuntu/common/config/ConvertFrom-VmConfigJson.ps1` - call
+  `Assert-VmFilesField -Vm $vm` (no extra arguments) alongside
+  `Assert-JavaDevKitField`. `Assert-VmFilesField` is supplied by
+  Infrastructure.HyperV; the provisioner's default policy of
+  "source + target only" is the cmdlet's default allow-list.
+- `Copy-VmFiles` / `Assert-VmFilesField` themselves live in
+  Infrastructure.HyperV (v0.3.0+). See that repo for the cmdlet source
+  and unit tests; this repo only invokes them.
+- `hyper-v/ubuntu/provision.ps1` - dot-source the three new files; in
+  the post-provisioning loop, call `Invoke-VmPostProvisioning -Vm $vm`
+  unconditionally for every VM (the orchestrator self-skips).
+- `Tests/up/post/Invoke-VmPostProvisioning.Tests.ps1` (new) - wiring
+  tests for the orchestrator (transport + cloud-init wait + dispatch).
+  Asserts the orchestrator builds `-Entries` from `$Vm.files` before
+  calling `Copy-VmFiles`.
+- `Tests/up/post/Install-Jdk.Tests.ps1` (new) - JDK-specific shell shape
+  only; transport is mocked.
+- Tests for `Copy-VmFiles` and `Assert-VmFilesField` live with their
+  source in Infrastructure.HyperV's `Tests/` directory.
 
-**Behaviour**
+**Behaviour - `Invoke-VmPostProvisioning -Vm`**
 
-- Tarball is staged at `/jdk/{archiveName}` on the seed ISO (mounted as
-  `/dev/sr0` -> `/var/lib/cloud/seed/nocloud-net/` typically, but the file
-  is read directly from the cidata mount).
-- `runcmd` (cloud-init):
-  - `mkdir -p /opt/jdk-{vendor}-{resolvedVersion}`
-  - `tar -xzf /jdk/{archiveName} --strip-components=1 -C /opt/jdk-{vendor}-{resolvedVersion}`
-    (Adoptium tarballs have a single top-level dir; `--strip-components=1`
-    flattens that into the target.)
-  - Guarded by `[ -f /opt/jdk-{vendor}-{resolvedVersion}/release ] || tar ...`
-    for idempotency.
-- `write_files`: `/etc/profile.d/jdk.sh` with mode `0644`:
+1. Returns silently if neither `$Vm.javaDevKit` nor a non-empty
+   `$Vm.files` is set.
+2. `Invoke-WithVmFileServer -VmIpAddress $Vm.ipAddress -ScriptBlock { ... }`
+   so the listener + firewall rule + staging dir are cleaned up in a
+   `finally` regardless of failure.
+3. Inside the scriptblock (closure-bound via `.GetNewClosure()` so
+   function locals are visible when invoked from the
+   Infrastructure.HyperV module):
+   - Open one SSH client as `$Vm.username` / `$Vm.password`.
+   - `timeout 600 cloud-init status --wait` once. Non-zero is logged via
+     `Write-Warning` but not fatal - downstream assertions catch real
+     problems and a non-zero status is most often unrelated to our steps.
+   - Dispatch (stylistic order): `Copy-VmFiles` if `$Vm.files` set, then
+     `Install-Jdk` if `$Vm.javaDevKit` set.
+   - Disconnect + dispose the SSH client in a step-local `finally`.
+
+**Behaviour - `Install-Jdk -SshClient -Server -Vm`**
+
+- Stages `$Vm._jdkTarballPath` via `Add-VmFileServerFile`.
+- One SSH round-trip under `set -e`, guarded by
+  `[ -f /opt/jdk-{vendor}-{resolvedVersion}/release ]` for idempotency:
   ```sh
-  export JAVA_HOME=/opt/jdk-{vendor}-{resolvedVersion}
-  export PATH="$JAVA_HOME/bin:$PATH"
+  curl -fsSL "$url" | sudo tar -xzf - --strip-components=1 -C "$install_dir"
+  printf 'export JAVA_HOME=%s\nexport PATH="$JAVA_HOME/bin:$PATH"\n' \
+    "$install_dir" | sudo tee /etc/profile.d/jdk.sh > /dev/null
   ```
+- Throws with `$Vm.vmName` named in the message on non-zero exit.
+
+**Behaviour - `Copy-VmFiles -SshClient -Server -Vm`**
+
+- For each `{ source, target }` in `$Vm.files`:
+  - Stage via `Add-VmFileServerFile -LocalPath $source` -> URL.
+  - One SSH round-trip: `mkdir -p $(dirname target)` + `curl -fsSL -o
+    target url`.
+- Throws with both `source` and `target` named in the message on non-zero
+  exit so the operator can identify the offending entry.
+- Idempotency: `curl -o` overwrites. The user's intent is "this file
+  should look like this".
 
 **Tests (unit, mocked)**
 
-- VM without `_jdkTarballPath`: generated user-data has no `runcmd` JDK
-  block and no `write_files` for `jdk.sh`.
-- VM with `_jdkTarballPath`: generated user-data contains the resolved
-  version in the `/opt/jdk-*` path, contains the `--strip-components=1`
-  extraction, contains the `write_files` entry, and the idempotency guard
-  is present.
-- Tarball staging: when `_jdkTarballPath` is set, `New-SeedIso` is called
-  with the tarball among its input files.
+- `Invoke-VmPostProvisioning.Tests.ps1`:
+  - No-op when both fields absent (and when `files` is `[]`).
+  - File server opened with the VM IP; SSH connected as the admin user.
+  - cloud-init wait issued exactly once and capped with `timeout(1)`.
+  - Dispatch fires only for the steps whose field is present.
+  - When both fields are set, `Copy-VmFiles` runs before `Install-Jdk`.
+  - Non-zero cloud-init exit does not block dispatch.
+- `Install-Jdk.Tests.ps1`:
+  - Stages the prefetched tarball via the file server.
+  - Issued command extracts under `/opt/jdk-{vendor}-{resolvedVersion}`
+    with `--strip-components=1`, has the release-file idempotency guard,
+    writes `/etc/profile.d/jdk.sh`, references the staged URL, and uses
+    the `curl | sudo tar -xzf -` streaming pattern.
+  - Does NOT issue any `cloud-init` command itself (orchestrator's job).
+  - Throws on non-zero install exit, naming the VM.
+- `Copy-VmFiles.Tests.ps1`:
+  - Each entry stages once and issues one SSH command.
+  - Parent dir is created before the curl download.
+  - Issued command references both the staged URL and the declared
+    target.
+  - Throws on non-zero exit, naming both source and target.
+- `Assert-FilesField.Tests.ps1`:
+  - Absent / empty array returns silently.
+  - Valid single / multiple entries with existing source paths.
+  - Rejects: bare object, string, array of non-objects, unknown
+    sub-fields, missing source/target, empty source/target,
+    non-existent source path, relative target, Windows-style target.
 
 **Diagram**
 
 ```mermaid
 graph TD
-    SEED["generate-seed-iso.ps1"] --> JDK{"_jdkTarballPath\nset?"}
-    JDK -->|no| BUILD["build base user-data"]
-    JDK -->|yes| STAGE["stage tarball into ISO\nappend runcmd + write_files"]
-    STAGE --> BUILD
-    BUILD --> ISO["New-SeedIso"]
-    ISO --> ATTACH["attach to VM"]
-    ATTACH -.->|first boot| CI["cloud-init runcmd:\ntar -xzf -> /opt/jdk-*\nwrite_files -> /etc/profile.d/jdk.sh"]
+    PROV["provision.ps1 (per VM)"] --> VMC["Invoke-VmCreation"]
+    VMC --> POST["Invoke-VmPostProvisioning"]
+    POST --> NOOP{"any opt-in field?"}
+    NOOP -->|no| DONE["ready"]
+    NOOP -->|yes| FS["Invoke-WithVmFileServer<br>+ open SSH<br>+ cloud-init status --wait"]
+    FS --> CF{"files set?"}
+    CF -->|yes| COPY["Copy-VmFiles<br>(mkdir -p, curl -o per entry)"]
+    COPY --> JDK{"javaDevKit set?"}
+    CF -->|no| JDK
+    JDK -->|yes| INST["Install-Jdk<br>(curl URL into sudo tar -xzf -<br>+ /etc/profile.d/jdk.sh)"]
+    JDK -->|no| CLEAN
+    INST --> CLEAN["Stop-VmFileServer + dispose SSH (finally)"]
+    CLEAN --> DONE
 ```
 
-**README update**
+**README updates**
 
-- In the "Optional: install a JDK" subsection, document the on-VM result:
-  install location (`/opt/jdk-{vendor}-{resolvedVersion}/`), the
-  `/etc/profile.d/jdk.sh` script, and that any user account (including
-  those later created by Infrastructure-Vm-Users) sees `JAVA_HOME` and
-  `$JAVA_HOME/bin` on `PATH` automatically.
+- New subsection "Optional: copy files to the VM" documenting the `files`
+  schema and contract (purely user data; not consumed by any install).
+- "Optional: install a JDK" subsection: clarify that the install runs
+  inside the post-provisioning orchestrator over an already-open SSH
+  session, and uses the streaming `curl | tar` pattern (no intermediate
+  file on the VM disk).
+- Provisioning-flow numbered list: step 10 describes the post-provisioning
+  orchestrator and lists each dispatched step.
+- File tree: add `up/post/` directory with the three new files; add
+  `Assert-FilesField.ps1` under `common/config/`.
+- Schema table: add `files` row of type `array?`.
 - Cross-reference Infrastructure-Vm-Users in the relevant section so an
   operator reading either repo's README understands the split of
   responsibilities.
