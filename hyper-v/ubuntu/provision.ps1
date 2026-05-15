@@ -43,6 +43,9 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\up\disk\Invoke-DiskImageAcquisition.ps1"
 . "$PSScriptRoot\up\jdk\Resolve-AdoptiumRelease.ps1"
 . "$PSScriptRoot\up\jdk\Invoke-JdkAcquisition.ps1"
+. "$PSScriptRoot\up\acquire\Invoke-VmAcquisitions.ps1"
+. "$PSScriptRoot\up\post\Install-Jdk.ps1"
+. "$PSScriptRoot\up\post\Invoke-VmPostProvisioning.ps1"
 . "$PSScriptRoot\up\seed\generate-seed-iso.ps1"
 . "$PSScriptRoot\up\network\setup-network.ps1"
 . "$PSScriptRoot\up\vm\create-vm.ps1"
@@ -143,21 +146,19 @@ foreach ($vm in $vmsToProvision) {
 }
 
 # ---------------------------------------------------------------------------
-# 7. JDK acquisition (optional, per VM)
-#    Runs only for VMs that opt in via the optional 'javaDevKit' field.
-#    Materialises the Temurin tarball on the host with a sidecar lockfile
-#    so re-provisioning is deterministic and offline-safe. Sets
-#    $vm._jdkTarballPath / $vm._jdkResolvedVersion for the seed-ISO step.
+# 7. Host-side acquisitions (optional, per VM)
+#    Per-VM orchestrator that dispatches each per-software acquirer whose
+#    opt-in field is set on the VM definition. Self-skips for VMs with no
+#    opt-in fields. Adding a new acquirer is one dispatch line in
+#    Invoke-VmAcquisitions, not a new block here.
 #
-#    Placed after disk acquisition (which guarantees $vm.vhdPath exists)
-#    and before seed-ISO generation (which stages the tarball into the
-#    cidata payload).
+#    Placed after disk acquisition so vhdPath exists. Installs themselves
+#    run out-of-band on the post-VM side (step 11) - cloud-init's job is
+#    OS bootstrap, the provisioner's job is software install.
 # ---------------------------------------------------------------------------
 
 foreach ($vm in $vmsToProvision) {
-    if ($vm.PSObject.Properties['javaDevKit']) {
-        Invoke-JdkAcquisition -Vm $vm
-    }
+    Invoke-VmAcquisitions -Vm $vm
 }
 
 # ---------------------------------------------------------------------------
@@ -190,6 +191,19 @@ Invoke-NetworkSetup -VmsToProvision $vmsToProvision `
 
 foreach ($vm in $vmsToProvision) {
     Invoke-VmCreation -Vm $vm -SwitchName $switchName
+}
+
+# ---------------------------------------------------------------------------
+# 11. Post-provisioning (optional, per VM)
+#     Opens one host file server + SSH session per VM, waits for cloud-init
+#     to finish, then dispatches each enabled step. Each step is
+#     self-contained - no cross-step file dependencies - so order between
+#     dispatched steps is not load-bearing. Skipped silently for VMs that
+#     have no opt-in fields set.
+# ---------------------------------------------------------------------------
+
+foreach ($vm in $vmsToProvision) {
+    Invoke-VmPostProvisioning -Vm $vm
 }
 
 Write-Host ""
