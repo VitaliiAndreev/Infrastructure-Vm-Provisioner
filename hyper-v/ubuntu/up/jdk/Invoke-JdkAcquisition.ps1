@@ -21,7 +21,7 @@
 #   does not silently upgrade between provisionings.
 #
 #   On return, $Vm._jdkTarballPath and $Vm._jdkResolvedVersion are set via
-#   Add-Member for use by the seed-ISO generator.
+#   Add-Member for use by Invoke-JdkInstall.
 # ---------------------------------------------------------------------------
 
 function Invoke-JdkAcquisition {

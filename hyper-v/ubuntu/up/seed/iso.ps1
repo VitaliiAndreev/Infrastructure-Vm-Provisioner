@@ -13,8 +13,9 @@
 #   and network-config files, using the Windows-built-in IMAPI2 COM objects.
 #
 #   Parameters:
-#     OutputPath - full path to the .iso file to write (overwritten if exists)
-#     Files      - hashtable of { filename => content (string) }
+#     OutputPath  - full path to the .iso file to write (overwritten if exists)
+#     Files       - hashtable of { isoPath => content (string) }. Text files
+#                   are written UTF-8 without BOM (required by cloud-init).
 #
 #   The volume label is fixed to 'cidata' — that is the label cloud-init's
 #   NoCloud datasource scans for on all attached block devices at first boot.

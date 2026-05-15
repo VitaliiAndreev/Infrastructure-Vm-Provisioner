@@ -1,8 +1,7 @@
 <#
 .NOTES
-    Do not run this file directly. Dot-sourced by provision.ps1 after
-    Install-Jdk.ps1 and Infrastructure.HyperV (which supplies Copy-VmFiles)
-    are loaded.
+    Do not run this file directly. Dot-sourced by provision.ps1 after the
+    per-step functions and Infrastructure.HyperV are loaded.
 #>
 
 # ---------------------------------------------------------------------------
