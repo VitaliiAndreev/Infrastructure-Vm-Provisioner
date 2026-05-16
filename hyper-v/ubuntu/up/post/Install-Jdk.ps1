@@ -57,6 +57,18 @@ function Install-Jdk {
     # dereferences its own copies. The single-quoted printf format keeps
     # $JAVA_HOME / $PATH literal in the generated jdk.sh so they expand
     # at user-login time, not jdk.sh-creation time.
+    #
+    # Two PATH wirings are needed because they cover different shell
+    # contexts:
+    #   - /etc/profile.d/jdk.sh sets JAVA_HOME and prepends $JAVA_HOME/bin
+    #     to PATH for LOGIN shells. JAVA_HOME is what build tools and
+    #     IDEs read; not setting it would force every consumer to
+    #     hard-code the install path.
+    #   - Symlinks under /usr/local/bin make the JDK binaries reachable
+    #     from NON-login shells too (sshd command execution, systemd
+    #     services, cron jobs). /usr/local/bin is on the default PATH
+    #     baked into /etc/login.defs ENV_PATH and PAM, which both login
+    #     and non-login shells inherit.
     $installScript = @"
 set -e
 install_dir='$installDir'
@@ -67,6 +79,9 @@ if [ ! -f "`$install_dir/release" ]; then
   printf 'export JAVA_HOME=%s\nexport PATH="`$JAVA_HOME/bin:`$PATH"\n' \
     "`$install_dir" | sudo tee /etc/profile.d/jdk.sh > /dev/null
   sudo chmod 0644 /etc/profile.d/jdk.sh
+  for f in "`$install_dir"/bin/*; do
+    sudo ln -sf "`$f" /usr/local/bin/
+  done
 fi
 "@
 

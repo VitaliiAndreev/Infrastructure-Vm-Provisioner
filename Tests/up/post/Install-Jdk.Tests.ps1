@@ -87,6 +87,20 @@ Describe 'Install-Jdk' {
         }
     }
 
+    It 'symlinks every JDK binary into /usr/local/bin (non-login PATH)' {
+        # /etc/profile.d/jdk.sh covers login shells only. Non-login
+        # shells (sshd command exec, systemd services) need the
+        # binaries on PATH via /usr/local/bin.
+        Install-Jdk -SshClient $script:FakeSshClient `
+                    -Server    $script:FakeServer `
+                    -Vm        (New-JdkVm)
+
+        Should -Invoke Invoke-SshClientCommand -ParameterFilter {
+            $Command -match 'for f in.*/bin/\*' -and
+            $Command -match 'sudo ln -sf .* /usr/local/bin/'
+        }
+    }
+
     It 'pipes curl from the staged URL into tar (no intermediate file)' {
         Install-Jdk -SshClient $script:FakeSshClient `
                     -Server    $script:FakeServer `
