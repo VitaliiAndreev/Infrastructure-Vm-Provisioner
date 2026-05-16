@@ -14,9 +14,11 @@ BeforeAll {
     # see the type as already present and not invoke Add-Type. Run tests in a
     # fresh session (pwsh -NonInteractive) to avoid this cross-run dependency.
     function Add-Type    { param([string] $TypeDefinition) }
-    function New-Item    { param($ItemType, $Path) }
+    function New-Item    { param($ItemType, $Path, [switch]$Force) }
     function Remove-Item { param($Path, [switch]$Recurse, [switch]$Force, $ErrorAction) }
     function New-Object  { param($ComObject) }
+    function Copy-Item   { param($Path, $Destination, [switch]$Force) }
+    function Test-Path   { param($Path, $PathType) }
 
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\seed\iso.ps1"
 }

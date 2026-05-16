@@ -4,6 +4,13 @@
     provision.ps1 and setup-secrets.ps1 after Infrastructure.Common is loaded.
 #>
 
+# Sibling validators dot-sourced here so callers of ConvertFrom-VmConfigJson
+# do not need to know which individual rule files exist - this file is the
+# single entry point for the config schema. Assert-VmFilesField is supplied
+# by Infrastructure.HyperV (already imported by Install-ModuleDependencies)
+# so the shared shape checks are not duplicated across consumers.
+. "$PSScriptRoot\Assert-JavaDevKitField.ps1"
+
 # ---------------------------------------------------------------------------
 # ConvertFrom-VmConfigJson
 #   Parses a VM provisioner JSON string and validates its structure.
@@ -53,6 +60,18 @@ function ConvertFrom-VmConfigJson {
             -Object      $vm `
             -Properties  $requiredFields `
             -Context     "VM '$(if ($vm.PSObject.Properties['vmName']) { $vm.vmName } else { '(unknown)' })'"`
+
+        # Optional-field validators. Each one is a no-op when its field is
+        # absent and throws with a descriptive message when present-but-malformed.
+        # Assert-VmFilesField is the shared validator from Infrastructure.HyperV;
+        # arguments are spelled out so the provisioner's policy ("source +
+        # target only, no per-entry rules") is readable at the call site
+        # instead of hidden in the cmdlet's defaults.
+        Assert-JavaDevKitField -Vm $vm
+        Assert-VmFilesField `
+            -Vm                $vm `
+            -AllowedSubFields  @('source', 'target') `
+            -PostEntryValidator $null
 
         # Apply defaults for optional fields. Using Add-Member rather than
         # property assignment so the field is added when absent without

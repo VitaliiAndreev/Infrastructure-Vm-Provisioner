@@ -41,6 +41,11 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\up\seed\iso.ps1"
 . "$PSScriptRoot\up\disk\Invoke-BaseImagePatch.ps1"
 . "$PSScriptRoot\up\disk\Invoke-DiskImageAcquisition.ps1"
+. "$PSScriptRoot\up\jdk\Resolve-AdoptiumRelease.ps1"
+. "$PSScriptRoot\up\jdk\Invoke-JdkAcquisition.ps1"
+. "$PSScriptRoot\up\acquire\Invoke-VmAcquisitions.ps1"
+. "$PSScriptRoot\up\post\Install-Jdk.ps1"
+. "$PSScriptRoot\up\post\Invoke-VmPostProvisioning.ps1"
 . "$PSScriptRoot\up\seed\generate-seed-iso.ps1"
 . "$PSScriptRoot\up\network\setup-network.ps1"
 . "$PSScriptRoot\up\vm\create-vm.ps1"
@@ -118,7 +123,7 @@ Write-Host "$($vmsToProvision.Count) VM(s) queued for provisioning." `
 # ---------------------------------------------------------------------------
 # 6. Disk image acquisition
 #    Downloads, converts, patches, and copies the per-VM VHDX.
-#    Sets $vm._vhdxPath on each object for use in step 9.
+#    Sets $vm._vhdxPath on each object for use in step 10.
 #
 #    Invoke-BaseImagePatch (called internally) throws a 'Wsl2NotReady:'
 #    error if WSL2 is not yet installed or initialised. We catch it here
@@ -141,9 +146,25 @@ foreach ($vm in $vmsToProvision) {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Cloud-init seed ISO generation
+# 7. Host-side acquisitions (optional, per VM)
+#    Per-VM orchestrator that dispatches each per-software acquirer whose
+#    opt-in field is set on the VM definition. Self-skips for VMs with no
+#    opt-in fields. Adding a new acquirer is one dispatch line in
+#    Invoke-VmAcquisitions, not a new block here.
+#
+#    Placed after disk acquisition so vhdPath exists. Installs themselves
+#    run out-of-band on the post-VM side (step 11) - cloud-init's job is
+#    OS bootstrap, the provisioner's job is software install.
+# ---------------------------------------------------------------------------
+
+foreach ($vm in $vmsToProvision) {
+    Invoke-VmAcquisitions -Vm $vm
+}
+
+# ---------------------------------------------------------------------------
+# 8. Cloud-init seed ISO generation
 #    Builds meta-data, user-data, and network-config; writes the ISO.
-#    Sets $vm._seedIsoPath on each object for use in step 9.
+#    Sets $vm._seedIsoPath on each object for use in the VM-creation step.
 # ---------------------------------------------------------------------------
 
 foreach ($vm in $vmsToProvision) {
@@ -151,7 +172,7 @@ foreach ($vm in $vmsToProvision) {
 }
 
 # ---------------------------------------------------------------------------
-# 8. Virtual switch and NAT setup
+# 9. Virtual switch and NAT setup
 #    Switch and NAT names come from the config (default: VmLAN / VmLAN-NAT).
 #    Idempotent - safe to re-run.
 # ---------------------------------------------------------------------------
@@ -164,12 +185,25 @@ Invoke-NetworkSetup -VmsToProvision $vmsToProvision `
                     -NatName        $natName
 
 # ---------------------------------------------------------------------------
-# 9. VM creation
+# 10. VM creation
 #    Creates, configures, boots each VM, and waits for SSH readiness.
 # ---------------------------------------------------------------------------
 
 foreach ($vm in $vmsToProvision) {
     Invoke-VmCreation -Vm $vm -SwitchName $switchName
+}
+
+# ---------------------------------------------------------------------------
+# 11. Post-provisioning (optional, per VM)
+#     Opens one host file server + SSH session per VM, waits for cloud-init
+#     to finish, then dispatches each enabled step. Each step is
+#     self-contained - no cross-step file dependencies - so order between
+#     dispatched steps is not load-bearing. Skipped silently for VMs that
+#     have no opt-in fields set.
+# ---------------------------------------------------------------------------
+
+foreach ($vm in $vmsToProvision) {
+    Invoke-VmPostProvisioning -Vm $vm
 }
 
 Write-Host ""

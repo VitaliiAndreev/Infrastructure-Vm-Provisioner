@@ -45,9 +45,18 @@ if (-not $_common -or $_common.Version -lt [Version]'4.0.0') {
 Import-Module Infrastructure.Common -Force -ErrorAction Stop
 
 # Step 3 - Everything else
-# Infrastructure.HyperV provides Test-VmSshPort, used by create-vm.ps1's
-# cloud-init readiness poll.
-Invoke-ModuleInstall -ModuleName 'Infrastructure.HyperV' -MinimumVersion '0.2.0'
+# Infrastructure.HyperV provides Test-VmSshPort (used by create-vm.ps1's
+# cloud-init readiness poll) and New-VmSshClient / Invoke-SshClientCommand /
+# Invoke-WithVmFileServer / Add-VmFileServerFile (used by the out-of-band
+# post-provisioning file transfers and software installs).
+Invoke-ModuleInstall -ModuleName 'Infrastructure.HyperV' -MinimumVersion '0.3.0'
+
+# Posh-SSH is loaded only for its bundled Renci.SshNet.dll - the SSH.NET
+# types that New-VmSshClient instantiates. Posh-SSH's own cmdlets are not
+# used (ConnectionInfoGenerator in Posh-SSH 3.x drops algorithm entries,
+# breaking key exchange against OpenSSH 9.x on Ubuntu 24.04). Same pattern
+# as Infrastructure-E2E's vm-provisioning tests.
+Invoke-ModuleInstall -ModuleName 'Posh-SSH'
 
 # Infrastructure.Secrets is used by setup-secrets.ps1 to seed the vault;
 # included here so setup-secrets can dot-source this helper too. The
