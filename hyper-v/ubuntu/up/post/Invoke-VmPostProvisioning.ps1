@@ -51,6 +51,17 @@ function Invoke-VmPostProvisioning {
     $password = $Vm.password
     $vmRef    = $Vm
 
+    # Capture the per-step functions as scriptblock locals so the closure
+    # below can invoke them via the call operator. Name-based command
+    # resolution from a closure invoked across a module boundary does NOT
+    # walk back into provision.ps1's script scope where these functions
+    # were dot-sourced. Capturing as variables sidesteps the lookup
+    # entirely - the variables themselves are preserved by GetNewClosure().
+    # Module-exported cmdlets (e.g. Copy-VmFiles) work the same way under
+    # this approach, so the dispatch is uniform.
+    $copyVmFiles = ${function:Copy-VmFiles}
+    $installJdk  = ${function:Install-Jdk}
+
     $postBlock = {
         param($server)
 
@@ -91,11 +102,11 @@ function Invoke-VmPostProvisioning {
                 $entries = @($vmRef.files) | ForEach-Object {
                     [PSCustomObject]@{ Source = $_.source; Target = $_.target }
                 }
-                Copy-VmFiles -SshClient $sshClient -Server $server -Entries $entries
+                & $copyVmFiles -SshClient $sshClient -Server $server -Entries $entries
                 Write-Host "  [files] [OK] all copies complete." -ForegroundColor Green
             }
             if ($hasJdk) {
-                Install-Jdk -SshClient $sshClient -Server $server -Vm $vmRef
+                & $installJdk -SshClient $sshClient -Server $server -Vm $vmRef
             }
         }
         finally {
