@@ -35,6 +35,50 @@ BeforeAll {
         param($node)
         $node -is [System.Management.Automation.Language.CommandAst]
     }, $true)
+
+    # Returns the name of the variable that the foreach enclosing the first
+    # CommandAst for $CommandName iterates over, e.g. 'newVms' or
+    # 'vmsToProcess'. Used by the destructive-vs-additive loop-target
+    # assertions below.
+    #
+    # AST shape: foreach ($vm in $newVms) { ... Invoke-Foo ... }
+    #   ForEachStatementAst.Variable  -> $vm   (per-iteration variable)
+    #   ForEachStatementAst.Condition -> $newVms (iterated expression)
+    function Get-LoopVarFor {
+        param([string] $CommandName)
+        $call = $script:commands |
+            Where-Object { $_.GetCommandName() -eq $CommandName } |
+            Select-Object -First 1
+        if ($null -eq $call) {
+            throw "No CommandAst found for '$CommandName' in provision.ps1."
+        }
+        $node = $call.Parent
+        while ($null -ne $node -and
+               -not ($node -is [System.Management.Automation.Language.ForEachStatementAst])) {
+            $node = $node.Parent
+        }
+        if ($null -eq $node) {
+            throw "Call to '$CommandName' is not inside a foreach loop."
+        }
+        # ForEachStatementAst.Condition is a PipelineAst, even when the
+        # iterated expression is a bare $var. Drill down through
+        #   PipelineAst -> PipelineElements[0] (CommandExpressionAst)
+        #     -> Expression (VariableExpressionAst)
+        # and accept only that shape so the test stays precise.
+        $expr = $node.Condition
+        if ($expr -is [System.Management.Automation.Language.PipelineAst] -and
+            $expr.PipelineElements.Count -eq 1 -and
+            $expr.PipelineElements[0] -is
+                [System.Management.Automation.Language.CommandExpressionAst]) {
+            $expr = $expr.PipelineElements[0].Expression
+        }
+        if ($expr -isnot
+            [System.Management.Automation.Language.VariableExpressionAst]) {
+            throw ("foreach for '$CommandName' iterates a non-variable " +
+                "expression: $($node.Condition.Extent.Text)")
+        }
+        return $expr.VariablePath.UserPath
+    }
 }
 
 Describe 'provision.ps1 - acquisition wiring (Step 4)' {
@@ -178,5 +222,40 @@ Describe 'provision.ps1 - post-provisioning wiring (Step 5)' {
 
         $byName['Invoke-VmCreation'] |
             Should -BeLessThan $byName['Invoke-VmPostProvisioning']
+    }
+}
+
+Describe 'provision.ps1 - new-vs-existing pipeline split' {
+
+    # Pins each per-VM foreach to the right list variable so a regression
+    # that swaps a destructive step onto $vmsToProcess (re-creating
+    # existing VMs - data loss) or an additive step onto $newVms (silently
+    # not reconciling existing VMs - the gap this whole refactor closes)
+    # fails the suite.
+
+    Context 'destructive steps must iterate $newVms' {
+
+        It 'Invoke-DiskImageAcquisition iterates $newVms' {
+            Get-LoopVarFor 'Invoke-DiskImageAcquisition' | Should -Be 'newVms'
+        }
+
+        It 'Invoke-SeedIsoGeneration iterates $newVms' {
+            Get-LoopVarFor 'Invoke-SeedIsoGeneration' | Should -Be 'newVms'
+        }
+
+        It 'Invoke-VmCreation iterates $newVms' {
+            Get-LoopVarFor 'Invoke-VmCreation' | Should -Be 'newVms'
+        }
+    }
+
+    Context 'additive steps must iterate $vmsToProcess' {
+
+        It 'Invoke-VmAcquisitions iterates $vmsToProcess' {
+            Get-LoopVarFor 'Invoke-VmAcquisitions' | Should -Be 'vmsToProcess'
+        }
+
+        It 'Invoke-VmPostProvisioning iterates $vmsToProcess' {
+            Get-LoopVarFor 'Invoke-VmPostProvisioning' | Should -Be 'vmsToProcess'
+        }
     }
 }

@@ -271,39 +271,56 @@ Run as Administrator after `setup-secrets.ps1` has stored the config.
 Reads `VmProvisionerConfig` from the vault and for each VM definition:
 
 1. Validates all required fields.
-2. Skips the entry if a Hyper-V VM with the same `vmName` already exists
-   (idempotent re-runs are safe).
-3. Aborts the entry if `ipAddress` responds to a ping (prevents static-IP
-   conflicts with existing machines).
-4. Downloads the Ubuntu cloud image (`.vhd.tar.gz`) from the Ubuntu CDN into
-   `vhdPath` once per `ubuntuVersion`, converts it to `.vhdx`, and caches it.
-   On first download it also patches the base image via WSL2 to enable the
-   NoCloud cloud-init datasource (required for Hyper-V — the Azure image ships
-   with Azure-only datasource config). Subsequent runs reuse the cached,
-   patched base image — no re-download or re-patch.
-5. Copies the base image to a per-VM disk (`{vmName}.vhdx`) and resizes it
-   to `diskGB`.
-6. Runs host-side acquisitions for each VM via a small per-VM orchestrator
-   (`Invoke-VmAcquisitions`). Today it dispatches one acquirer:
+2. Classifies each entry as **new** (no Hyper-V VM with this `vmName`
+   exists AND the `ipAddress` is silent), **existing** (Hyper-V VM
+   exists AND the `ipAddress` responds — the VM is up), or **skipped**
+   (any other combination). New VMs get the full destructive pipeline;
+   existing VMs are *reconciled* — only the idempotent additive steps
+   (host-side acquisitions and post-provisioning) run, so adding
+   `javaDevKit` / `files` / etc. to a VM definition and re-running
+   `provision.ps1` pushes the change without re-creating the VM. The
+   two skipped cases get a warning explaining why:
+   - VM is absent but the IP responds → static-IP conflict with an
+     unknown machine.
+   - VM exists but the IP does not respond → VM is offline; start it
+     and re-run.
+
+   The steps below note which classifications they apply to.
+3. **(new VMs only)** Downloads the Ubuntu cloud image (`.vhd.tar.gz`)
+   from the Ubuntu CDN into `vhdPath` once per `ubuntuVersion`, converts
+   it to `.vhdx`, and caches it. On first download it also patches the
+   base image via WSL2 to enable the NoCloud cloud-init datasource
+   (required for Hyper-V — the Azure image ships with Azure-only
+   datasource config). Subsequent runs reuse the cached, patched base
+   image — no re-download or re-patch.
+4. **(new VMs only)** Copies the base image to a per-VM disk
+   (`{vmName}.vhdx`) and resizes it to `diskGB`.
+5. **(new AND existing VMs)** Runs host-side acquisitions for each VM
+   via a small per-VM orchestrator (`Invoke-VmAcquisitions`). Today it
+   dispatches one acquirer:
    - **`javaDevKit`** acquires the requested Temurin tarball into
      `vhdPath` (see [Optional: install a JDK](#optional-install-a-jdk)).
 
-   Skipped silently for VMs that have no opt-in fields. New acquirers
-   plug in as one dispatch line in the orchestrator, not a new step
-   here.
-7. Generates a cloud-init seed ISO (`{vmName}-seed.iso`) in `vmConfigPath`
-   containing `meta-data`, `user-data`, and `network-config`. On first boot
-   cloud-init reads the ISO to create the OS user, enable SSH, and apply the
-   static IP - no interactive installer needed.
-8. Creates a Hyper-V Internal switch named `VmLAN` (if absent),
-   assigns the `gateway` IP to the host-side virtual NIC, and adds a
-   `New-NetNat` rule for the subnet so VMs can reach the internet through
-   the host. The host reaches VMs at their static IPs via the same vNIC.
-9. Creates each VM (Gen 2, static RAM, VHDX from step 5), sets Secure Boot
-   to `MicrosoftUEFICertificateAuthority` (required for Ubuntu), attaches
-   the seed ISO, connects to `VmLAN`, and starts the VM. Polls port 22
-   until cloud-init finishes, then detaches and deletes the seed ISO.
-10. For each VM, runs post-provisioning. Opens one host file server and
+   Skipped silently for VMs that have no opt-in fields. Each acquirer is
+   idempotent via its on-host lockfile, so a re-run against an already-
+   cached artefact is cheap. New acquirers plug in as one dispatch line
+   in the orchestrator, not a new step here.
+6. **(new VMs only)** Generates a cloud-init seed ISO
+   (`{vmName}-seed.iso`) in `vmConfigPath` containing `meta-data`,
+   `user-data`, and `network-config`. On first boot cloud-init reads the
+   ISO to create the OS user, enable SSH, and apply the static IP - no
+   interactive installer needed.
+7. **(always)** Creates a Hyper-V Internal switch named `VmLAN` (if
+   absent), assigns the `gateway` IP to the host-side virtual NIC, and
+   adds a `New-NetNat` rule for the subnet so VMs can reach the internet
+   through the host. Idempotent; runs even when only existing VMs are
+   being reconciled so a rebuilt host gets the network re-applied.
+8. **(new VMs only)** Creates each VM (Gen 2, static RAM, VHDX from
+   step 4), sets Secure Boot to `MicrosoftUEFICertificateAuthority`
+   (required for Ubuntu), attaches the seed ISO, connects to `VmLAN`,
+   and starts the VM. Polls port 22 until cloud-init finishes, then
+   detaches and deletes the seed ISO.
+9. **(new AND existing VMs)** Runs post-provisioning. Opens one host file server and
     one SSH session per VM, waits once for cloud-init to finish, then
     dispatches each enabled step:
     - **`files`** copies host files to declared VM paths
@@ -316,7 +333,9 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
     Each step is self-contained — no step consumes files left by another
     step. Adding a new step (e.g. Maven) is a one-function addition with
     one dispatch line in `Invoke-VmPostProvisioning`. Skipped silently
-    for VMs that have no opt-in fields.
+    for VMs that have no opt-in fields. Idempotent on the VM side: the
+    JDK install no-ops when its `release` file is already present, file
+    copies overwrite with the current host source bytes.
 
 ---
 

@@ -6,13 +6,13 @@ BeforeAll {
 
     function New-TestVm {
         param(
-            [string] $VmName     = 'node-01',
-            [string] $IpAddress  = '192.168.1.10'
+            [string] $VmName    = 'node-01',
+            [string] $IpAddress = '192.168.1.10'
         )
         [PSCustomObject]@{ vmName = $VmName; ipAddress = $IpAddress }
     }
 
-    # Default: no existing VM, no IP conflict - both checks pass.
+    # Default: no existing VM, no IP conflict (i.e. classified as 'new').
     function Initialize-Mocks {
         Mock Get-VM              { $null  }
         Mock Test-IpAddressInUse { $false }
@@ -22,118 +22,105 @@ BeforeAll {
 Describe 'Select-VmsForProvisioning' {
 
     # ------------------------------------------------------------------
-    Context 'VM already exists in Hyper-V' {
+    Context 'new VM (Hyper-V absent, IP free)' {
     # ------------------------------------------------------------------
 
-        It 'skips a VM that already exists' {
+        It "annotates the VM with _state = 'new' and returns it" {
             Initialize-Mocks
-            Mock Get-VM { [PSCustomObject]@{ Name = 'node-01' } }
 
             $result = @(Select-VmsForProvisioning -VmDefs @(New-TestVm))
 
-            $result.Count | Should -Be 0
-        }
-
-        It 'still processes subsequent VMs after skipping an existing one' {
-            Initialize-Mocks
-            Mock Get-VM -ParameterFilter { $Name -eq 'node-01' } {
-                [PSCustomObject]@{ Name = 'node-01' }
-            }
-            Mock Get-VM -ParameterFilter { $Name -eq 'node-02' } { $null }
-
-            $vms = @(
-                (New-TestVm -VmName 'node-01'),
-                (New-TestVm -VmName 'node-02')
-            )
-            $result = @(Select-VmsForProvisioning -VmDefs $vms)
-
-            $result.Count    | Should -Be 1
-            $result[0].vmName | Should -Be 'node-02'
-        }
-
-        It 'does not check the IP when the VM already exists' {
-            # The existing VM owns this IP - a ping response is expected and
-            # is not a conflict. Checking would produce a false positive skip.
-            Initialize-Mocks
-            Mock Get-VM { [PSCustomObject]@{ Name = 'node-01' } }
-
-            Select-VmsForProvisioning -VmDefs @(New-TestVm)
-
-            Should -Invoke Test-IpAddressInUse -Times 0
+            $result.Count        | Should -Be 1
+            $result[0].vmName    | Should -Be 'node-01'
+            $result[0]._state    | Should -Be 'new'
         }
     }
 
     # ------------------------------------------------------------------
-    Context 'IP address conflict' {
+    Context 'existing VM (Hyper-V present, IP responds)' {
     # ------------------------------------------------------------------
 
-        It 'skips a VM whose IP address is already in use' {
+        It "annotates the VM with _state = 'existing' and returns it" {
+            # The existing VM owns its IP, so a ping response is expected
+            # and confirms reachability for downstream reconcile.
             Initialize-Mocks
+            Mock Get-VM              { [PSCustomObject]@{ Name = 'node-01' } }
             Mock Test-IpAddressInUse { $true }
-
-            $result = @(Select-VmsForProvisioning -VmDefs @(New-TestVm))
-
-            $result.Count | Should -Be 0
-        }
-
-        It 'still processes subsequent VMs after skipping an IP conflict' {
-            Initialize-Mocks
-            Mock Test-IpAddressInUse -ParameterFilter { $IpAddress -eq '192.168.1.10' } { $true  }
-            Mock Test-IpAddressInUse -ParameterFilter { $IpAddress -eq '192.168.1.11' } { $false }
-
-            $vms = @(
-                (New-TestVm -VmName 'node-01' -IpAddress '192.168.1.10'),
-                (New-TestVm -VmName 'node-02' -IpAddress '192.168.1.11')
-            )
-            $result = @(Select-VmsForProvisioning -VmDefs $vms)
-
-            $result.Count     | Should -Be 1
-            $result[0].vmName | Should -Be 'node-02'
-        }
-
-        It 'checks the correct IP address for each VM' {
-            Initialize-Mocks
-
-            Select-VmsForProvisioning -VmDefs @(New-TestVm -IpAddress '192.168.1.10')
-
-            Should -Invoke Test-IpAddressInUse -Times 1 -Exactly -ParameterFilter {
-                $IpAddress -eq '192.168.1.10'
-            }
-        }
-    }
-
-    # ------------------------------------------------------------------
-    Context 'VM passes all checks' {
-    # ------------------------------------------------------------------
-
-        It 'returns the VM when it passes both checks' {
-            Initialize-Mocks
 
             $result = @(Select-VmsForProvisioning -VmDefs @(New-TestVm))
 
             $result.Count     | Should -Be 1
             $result[0].vmName | Should -Be 'node-01'
+            $result[0]._state | Should -Be 'existing'
         }
+    }
 
-        It 'returns all VMs when all pass both checks' {
+    # ------------------------------------------------------------------
+    Context 'IP conflict with unknown machine (Hyper-V absent, IP in use)' {
+    # ------------------------------------------------------------------
+
+        It 'drops the VM with a warning' {
             Initialize-Mocks
+            Mock Test-IpAddressInUse { $true }
 
-            $vms = @(
-                (New-TestVm -VmName 'node-01' -IpAddress '192.168.1.10'),
-                (New-TestVm -VmName 'node-02' -IpAddress '192.168.1.11')
-            )
-            $result = @(Select-VmsForProvisioning -VmDefs $vms)
-
-            $result.Count | Should -Be 2
-        }
-
-        It 'returns an empty array when all VMs are skipped' {
-            Initialize-Mocks
-            Mock Get-VM { [PSCustomObject]@{ Name = 'node-01' } }
-
-            $result = @(Select-VmsForProvisioning -VmDefs @(New-TestVm))
+            $result = @(Select-VmsForProvisioning -VmDefs @(New-TestVm) `
+                3> $null)
 
             $result.Count | Should -Be 0
+        }
+    }
+
+    # ------------------------------------------------------------------
+    Context 'existing VM that is offline (Hyper-V present, IP silent)' {
+    # ------------------------------------------------------------------
+
+        It 'drops the VM with a warning' {
+            # An offline existing VM would fail post-provisioning at SSH
+            # open with an opaque error - surface the state up front
+            # instead so the operator can start the VM and re-run.
+            Initialize-Mocks
+            Mock Get-VM              { [PSCustomObject]@{ Name = 'node-01' } }
+            Mock Test-IpAddressInUse { $false }
+
+            $result = @(Select-VmsForProvisioning -VmDefs @(New-TestVm) `
+                3> $null)
+
+            $result.Count | Should -Be 0
+        }
+    }
+
+    # ------------------------------------------------------------------
+    Context 'mixed batch' {
+    # ------------------------------------------------------------------
+
+        It 'classifies each VM independently and returns only valid ones' {
+            Initialize-Mocks
+            Mock Get-VM -ParameterFilter { $Name -eq 'new-vm' }      { $null }
+            Mock Get-VM -ParameterFilter { $Name -eq 'existing-vm' } {
+                [PSCustomObject]@{ Name = 'existing-vm' }
+            }
+            Mock Get-VM -ParameterFilter { $Name -eq 'conflict-vm' } { $null }
+            Mock Get-VM -ParameterFilter { $Name -eq 'offline-vm' }  {
+                [PSCustomObject]@{ Name = 'offline-vm' }
+            }
+
+            Mock Test-IpAddressInUse -ParameterFilter { $IpAddress -eq '10.0.0.1' } { $false }
+            Mock Test-IpAddressInUse -ParameterFilter { $IpAddress -eq '10.0.0.2' } { $true  }
+            Mock Test-IpAddressInUse -ParameterFilter { $IpAddress -eq '10.0.0.3' } { $true  }
+            Mock Test-IpAddressInUse -ParameterFilter { $IpAddress -eq '10.0.0.4' } { $false }
+
+            $vms = @(
+                (New-TestVm -VmName 'new-vm'      -IpAddress '10.0.0.1'),
+                (New-TestVm -VmName 'existing-vm' -IpAddress '10.0.0.2'),
+                (New-TestVm -VmName 'conflict-vm' -IpAddress '10.0.0.3'),
+                (New-TestVm -VmName 'offline-vm'  -IpAddress '10.0.0.4')
+            )
+
+            $result = @(Select-VmsForProvisioning -VmDefs $vms 3> $null)
+
+            $result.Count                                   | Should -Be 2
+            ($result | Where-Object vmName -eq 'new-vm')._state      | Should -Be 'new'
+            ($result | Where-Object vmName -eq 'existing-vm')._state | Should -Be 'existing'
         }
     }
 }

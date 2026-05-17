@@ -1,6 +1,9 @@
 # Claude Code local settings (machine-specific permission overrides)
 .claude/settings.local.json
 
+# BAT scripts
+*.bat
+
 # VM disk images and archives — large binaries, never committed
 *.vhd
 *.vhdx
