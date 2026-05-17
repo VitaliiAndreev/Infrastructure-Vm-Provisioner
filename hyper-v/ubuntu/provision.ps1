@@ -107,23 +107,35 @@ Write-Host "[OK] Config validated - $($vmDefs.Count) VM definition(s) found." `
 #      b) no machine already responding to the target ipAddress
 # ---------------------------------------------------------------------------
 
-$vmsToProvision = ConvertTo-Array (Select-VmsForProvisioning -VmDefs $vmDefs)
+$vmsToProcess = ConvertTo-Array (Select-VmsForProvisioning -VmDefs $vmDefs)
 
 Write-Host ""
 
-if ($vmsToProvision.Count -eq 0) {
-    Write-Host "No VMs to provision - all entries were skipped." `
+if ($vmsToProcess.Count -eq 0) {
+    Write-Host "No VMs to process - all entries were skipped." `
         -ForegroundColor Yellow
     exit 0
 }
 
-Write-Host "$($vmsToProvision.Count) VM(s) queued for provisioning." `
+# Split by classification. 'new' VMs go through the full destructive
+# pipeline (disk acquisition, seed-ISO generation, VM creation); 'existing'
+# VMs are reconciled with the idempotent additive steps only (host-side
+# acquisitions + post-provisioning). Network setup is always run because
+# it is idempotent and may need to be applied if the host environment was
+# rebuilt around already-existing VMs.
+$newVms      = ConvertTo-Array ($vmsToProcess | Where-Object { $_._state -eq 'new' })
+$existingVms = ConvertTo-Array ($vmsToProcess | Where-Object { $_._state -eq 'existing' })
+
+Write-Host ("Queued: $($newVms.Count) new VM(s), " +
+            "$($existingVms.Count) existing VM(s) for reconcile.") `
     -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# 6. Disk image acquisition
+# 6. Disk image acquisition (new VMs only)
 #    Downloads, converts, patches, and copies the per-VM VHDX.
-#    Sets $vm._vhdxPath on each object for use in step 10.
+#    Sets $vm._vhdxPath on each object for use in step 10. Skipped for
+#    existing VMs - their disks already exist and re-copying would lose
+#    data.
 #
 #    Invoke-BaseImagePatch (called internally) throws a 'Wsl2NotReady:'
 #    error if WSL2 is not yet installed or initialised. We catch it here
@@ -131,7 +143,7 @@ Write-Host "$($vmsToProvision.Count) VM(s) queued for provisioning." `
 #    letting the error propagate as an unhandled exception.
 # ---------------------------------------------------------------------------
 
-foreach ($vm in $vmsToProvision) {
+foreach ($vm in $newVms) {
     try {
         Invoke-DiskImageAcquisition -Vm $vm
     }
@@ -146,63 +158,72 @@ foreach ($vm in $vmsToProvision) {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Host-side acquisitions (optional, per VM)
+# 7. Host-side acquisitions (per VM - new AND existing)
 #    Per-VM orchestrator that dispatches each per-software acquirer whose
 #    opt-in field is set on the VM definition. Self-skips for VMs with no
 #    opt-in fields. Adding a new acquirer is one dispatch line in
 #    Invoke-VmAcquisitions, not a new block here.
 #
-#    Placed after disk acquisition so vhdPath exists. Installs themselves
-#    run out-of-band on the post-VM side (step 11) - cloud-init's job is
-#    OS bootstrap, the provisioner's job is software install.
+#    Runs for existing VMs too: the operator may have added an opt-in
+#    field (javaDevKit, ...) after the VM was originally provisioned, and
+#    each acquirer is idempotent via its on-host lockfile so re-running
+#    against an already-cached artefact is cheap.
 # ---------------------------------------------------------------------------
 
-foreach ($vm in $vmsToProvision) {
+foreach ($vm in $vmsToProcess) {
     Invoke-VmAcquisitions -Vm $vm
 }
 
 # ---------------------------------------------------------------------------
-# 8. Cloud-init seed ISO generation
+# 8. Cloud-init seed ISO generation (new VMs only)
 #    Builds meta-data, user-data, and network-config; writes the ISO.
 #    Sets $vm._seedIsoPath on each object for use in the VM-creation step.
+#    Skipped for existing VMs - cloud-init already ran on their first boot.
 # ---------------------------------------------------------------------------
 
-foreach ($vm in $vmsToProvision) {
+foreach ($vm in $newVms) {
     Invoke-SeedIsoGeneration -Vm $vm
 }
 
 # ---------------------------------------------------------------------------
 # 9. Virtual switch and NAT setup
 #    Switch and NAT names come from the config (default: VmLAN / VmLAN-NAT).
-#    Idempotent - safe to re-run.
+#    Idempotent - safe to re-run. Always runs so a rebuilt host gets the
+#    network re-applied around already-existing VMs.
 # ---------------------------------------------------------------------------
 
-$switchName = $vmsToProvision[0].switchName
-$natName    = $vmsToProvision[0].natName
+$switchName = $vmsToProcess[0].switchName
+$natName    = $vmsToProcess[0].natName
 
-Invoke-NetworkSetup -VmsToProvision $vmsToProvision `
+Invoke-NetworkSetup -VmsToProvision $vmsToProcess `
                     -SwitchName     $switchName `
                     -NatName        $natName
 
 # ---------------------------------------------------------------------------
-# 10. VM creation
+# 10. VM creation (new VMs only)
 #    Creates, configures, boots each VM, and waits for SSH readiness.
+#    Skipped for existing VMs.
 # ---------------------------------------------------------------------------
 
-foreach ($vm in $vmsToProvision) {
+foreach ($vm in $newVms) {
     Invoke-VmCreation -Vm $vm -SwitchName $switchName
 }
 
 # ---------------------------------------------------------------------------
-# 11. Post-provisioning (optional, per VM)
+# 11. Post-provisioning (per VM - new AND existing)
 #     Opens one host file server + SSH session per VM, waits for cloud-init
 #     to finish, then dispatches each enabled step. Each step is
 #     self-contained - no cross-step file dependencies - so order between
 #     dispatched steps is not load-bearing. Skipped silently for VMs that
 #     have no opt-in fields set.
+#
+#     Runs for existing VMs too: this is what lets an operator add a
+#     'javaDevKit' or 'files' entry to a VM definition and re-run
+#     provision.ps1 to push the change. Each step is idempotent on the VM
+#     side (release-file guard, file-overwrite semantics).
 # ---------------------------------------------------------------------------
 
-foreach ($vm in $vmsToProvision) {
+foreach ($vm in $vmsToProcess) {
     Invoke-VmPostProvisioning -Vm $vm
 }
 
