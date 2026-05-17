@@ -6,19 +6,30 @@
 
 # ---------------------------------------------------------------------------
 # Select-VmsForProvisioning
-#   Runs pre-flight checks on each VM definition and outputs only those
-#   that should be provisioned. Two checks run per VM, in order:
+#   Runs pre-flight checks on each VM definition and outputs only those that
+#   should be touched by the pipeline. Each returned VM is annotated with
+#   a '_state' note property:
 #
-#   a) VM existence - if a Hyper-V VM with the same vmName already exists,
-#      the entry is skipped. Re-creating an existing VM risks data loss.
+#     'new'      - no Hyper-V VM with this name exists AND the IP does not
+#                  respond. The full destructive pipeline (disk acquisition,
+#                  seed-ISO generation, VM creation) plus host-side
+#                  acquisitions and post-provisioning all run for this VM.
 #
-#   b) IP conflict  - if ipAddress responds to a ping, the entry is skipped.
-#      Assigning a static IP already in use causes network conflicts that
-#      are difficult to diagnose from inside the VM.
+#     'existing' - a Hyper-V VM with this name exists AND the IP responds.
+#                  Destructive steps are skipped; only the idempotent
+#                  additive steps (host-side acquisitions, post-provisioning)
+#                  run. Lets the operator add javaDevKit / files / etc. to
+#                  an already-provisioned VM and re-run provision.ps1.
 #
-#   VMs that pass both checks are written to the pipeline. Collect with
-#   ConvertTo-Array (Select-VmsForProvisioning ...) to guarantee an array
-#   when one VM is returned.
+#   VMs that match no clean classification are dropped with a warning:
+#     - VM does not exist but IP responds: IP conflict with some other
+#       machine on the subnet. Creating would assign a duplicate IP.
+#     - VM exists but IP does not respond: VM is powered off or its
+#       network is broken. Post-provisioning would fail at the SSH open
+#       with an opaque error - safer to surface the state up front.
+#
+#   Callers must collect with ConvertTo-Array to guarantee an array when a
+#   single VM is returned.
 # ---------------------------------------------------------------------------
 function Select-VmsForProvisioning {
     [CmdletBinding()]
@@ -31,33 +42,40 @@ function Select-VmsForProvisioning {
         Write-Host ""
         Write-Host "--- Checking: $($vm.vmName) ---" -ForegroundColor Cyan
 
-        # ------------------------------------------------------------------
-        # Check a) VM existence
         # Get-VM throws on a missing name without -ErrorAction;
         # SilentlyContinue returns $null instead.
-        # ------------------------------------------------------------------
-        $existing = Get-VM -Name $vm.vmName -ErrorAction SilentlyContinue
-        if ($null -ne $existing) {
-            Write-Warning "VM '$($vm.vmName)' already exists in Hyper-V - skipping."
-            continue
-        }
+        $existing  = $null -ne (Get-VM -Name $vm.vmName -ErrorAction SilentlyContinue)
+        $ipInUse   = Test-IpAddressInUse -IpAddress $vm.ipAddress
 
-        # ------------------------------------------------------------------
-        # Check b) IP conflict
-        # The existing VM owns this IP, so pinging it is expected to succeed
-        # and is not a conflict. The IP check is skipped when check a) fires.
-        # ------------------------------------------------------------------
-        if (Test-IpAddressInUse -IpAddress $vm.ipAddress) {
+        # Decision matrix. The four cases are exhaustive and mutually exclusive.
+        if (-not $existing -and -not $ipInUse) {
+            $vm | Add-Member -MemberType NoteProperty -Name '_state' -Value 'new' -Force
+            Write-Host "[OK] '$($vm.vmName)' is new - full pipeline." `
+                -ForegroundColor Green
+            $vm
+        }
+        elseif ($existing -and $ipInUse) {
+            $vm | Add-Member -MemberType NoteProperty -Name '_state' -Value 'existing' -Force
+            Write-Host "[OK] '$($vm.vmName)' exists and is reachable - reconcile (additive steps only)." `
+                -ForegroundColor Green
+            $vm
+        }
+        elseif (-not $existing -and $ipInUse) {
             Write-Warning (
-                "IP $($vm.ipAddress) is already in use on the network - " +
-                "skipping '$($vm.vmName)' to avoid a static-IP conflict."
+                "IP $($vm.ipAddress) is in use but no Hyper-V VM named " +
+                "'$($vm.vmName)' exists - skipping to avoid a static-IP " +
+                "conflict with an unknown machine."
             )
-            continue
         }
-
-        Write-Host "[OK] '$($vm.vmName)' passed all checks - queued for provisioning." `
-            -ForegroundColor Green
-        $vm
+        else {
+            # $existing -and -not $ipInUse
+            Write-Warning (
+                "Hyper-V VM '$($vm.vmName)' exists but its IP " +
+                "$($vm.ipAddress) does not respond - skipping. Start the " +
+                "VM (and verify its network) before re-running so " +
+                "post-provisioning has somewhere to SSH."
+            )
+        }
     }
 }
 
