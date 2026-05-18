@@ -10,9 +10,14 @@
 #
 #   The field is optional - when absent the function returns silently. When
 #   present, the structure must match the schema exactly:
-#       javaDevKit.vendor  : 'temurin'                        (only value)
-#       javaDevKit.version : string matching one of four
-#                            granularities (see $versionPatterns).
+#       javaDevKit.vendor    : 'temurin'                        (only value)
+#       javaDevKit.version   : string matching one of four
+#                              granularities (see $versionPatterns).
+#       javaDevKit.uninstall : optional boolean. When $true, the
+#                              post-provisioning step removes the JDK
+#                              instead of installing. Stringy ("true") or
+#                              numeric (1) forms are rejected so there is
+#                              exactly one way to spell the value.
 #
 #   Lives in its own file so the rule set is independently testable and
 #   ConvertFrom-VmConfigJson.ps1 stays a thin orchestrator.
@@ -50,7 +55,7 @@ function Assert-JavaDevKitField {
 
     # Strict sub-field set. Reject anything outside this list to catch
     # typos like 'versoin' before they cause a confusing downstream error.
-    $allowedFields = @('vendor', 'version')
+    $allowedFields = @('vendor', 'version', 'uninstall')
     foreach ($prop in $jdk.PSObject.Properties) {
         if ($prop.Name -notin $allowedFields) {
             throw "$ctx has unknown sub-field '$($prop.Name)'. Allowed sub-fields: $($allowedFields -join ', ')."
@@ -96,5 +101,18 @@ function Assert-JavaDevKitField {
     }
     if (-not $matched) {
         throw "$ctx.version '$($jdk.version)' is not a recognised granularity. Use '21', '21.0', '21.0.5' or '21.0.5+11'."
+    }
+
+    # uninstall: optional. Must be a real JSON boolean if present. Stringy
+    # ('"true"') or numeric (1) forms are rejected so there is exactly one
+    # way to spell the value - JSON has a native boolean type, and accepting
+    # alternates would invite a sliding scope of "what counts as truthy".
+    # No default is applied here; downstream code reads the property and
+    # treats absence as "install".
+    if ($jdk.PSObject.Properties['uninstall']) {
+        if ($jdk.uninstall -isnot [bool]) {
+            $observedType = if ($null -eq $jdk.uninstall) { 'null' } else { $jdk.uninstall.GetType().Name }
+            throw "$ctx.uninstall must be a JSON boolean (true or false). Got type '$observedType'."
+        }
     }
 }
