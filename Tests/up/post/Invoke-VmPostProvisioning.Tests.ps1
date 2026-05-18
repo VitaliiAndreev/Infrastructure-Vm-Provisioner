@@ -35,6 +35,7 @@ BeforeAll {
         'New-VmSshClient'         = @()
         'Invoke-SshClientCommand' = @()
         'Install-Jdk'             = @()
+        'Uninstall-Jdk'           = @()
         'Copy-VmFiles'            = @()
         'Invoke-WithVmFileServer' = @()
     }
@@ -104,6 +105,11 @@ BeforeAll {
         $global:_PostProv_Calls['Install-Jdk'] += @{ Vm = $Vm }
     }
 
+    function global:Uninstall-Jdk {
+        param($SshClient, $Vm)
+        $global:_PostProv_Calls['Uninstall-Jdk'] += @{ Vm = $Vm }
+    }
+
     function global:Copy-VmFiles {
         param($SshClient, $Server, $Entries)
         $global:_PostProv_Calls['Copy-VmFiles'] += @{ Entries = $Entries }
@@ -127,6 +133,28 @@ BeforeAll {
         $vm
     }
 
+    function New-VmWithJdkUninstallFalse {
+        $vm = New-PlainVm
+        Add-Member -InputObject $vm -MemberType NoteProperty -Name 'javaDevKit' `
+            -Value ([PSCustomObject]@{
+                vendor    = 'temurin'
+                version   = '21'
+                uninstall = $false
+            })
+        $vm
+    }
+
+    function New-VmWithJdkUninstall {
+        $vm = New-PlainVm
+        Add-Member -InputObject $vm -MemberType NoteProperty -Name 'javaDevKit' `
+            -Value ([PSCustomObject]@{
+                vendor    = 'temurin'
+                version   = '21'
+                uninstall = $true
+            })
+        $vm
+    }
+
     function New-VmWithFiles {
         $vm = New-PlainVm
         Add-Member -InputObject $vm -MemberType NoteProperty -Name 'files' -Value @(
@@ -139,8 +167,8 @@ BeforeAll {
 AfterAll {
     foreach ($name in @(
             'Invoke-WithVmFileServer', 'New-VmSshClient',
-            'Invoke-SshClientCommand', 'Install-Jdk', 'Copy-VmFiles',
-            'Reset-PostProvCallLog')) {
+            'Invoke-SshClientCommand', 'Install-Jdk', 'Uninstall-Jdk',
+            'Copy-VmFiles', 'Reset-PostProvCallLog')) {
         Remove-Item -Path "function:global:$name" -ErrorAction SilentlyContinue
     }
     foreach ($name in @(
@@ -214,14 +242,61 @@ Describe 'Invoke-VmPostProvisioning' {
             $calls[0].Command | Should -Match '^timeout \d+ cloud-init status --wait'
         }
 
-        It 'dispatches Install-Jdk when javaDevKit is set' {
+        It 'dispatches Install-Jdk (not Uninstall-Jdk) when javaDevKit has no uninstall flag' {
             Invoke-VmPostProvisioning -Vm (New-VmWithJdk)
-            $global:_PostProv_Calls['Install-Jdk'].Count | Should -Be 1
+            $global:_PostProv_Calls['Install-Jdk'].Count   | Should -Be 1
+            $global:_PostProv_Calls['Uninstall-Jdk'].Count | Should -Be 0
         }
 
-        It 'does NOT dispatch Install-Jdk when javaDevKit is absent' {
+        It 'dispatches Install-Jdk (not Uninstall-Jdk) when uninstall = $false' {
+            # Explicit false must behave like absence - removing the flag
+            # is just as valid as flipping it.
+            Invoke-VmPostProvisioning -Vm (New-VmWithJdkUninstallFalse)
+            $global:_PostProv_Calls['Install-Jdk'].Count   | Should -Be 1
+            $global:_PostProv_Calls['Uninstall-Jdk'].Count | Should -Be 0
+        }
+
+        It 'dispatches Uninstall-Jdk (not Install-Jdk) when uninstall = $true' {
+            Invoke-VmPostProvisioning -Vm (New-VmWithJdkUninstall)
+            $global:_PostProv_Calls['Uninstall-Jdk'].Count | Should -Be 1
+            $global:_PostProv_Calls['Install-Jdk'].Count   | Should -Be 0
+        }
+
+        It 'still opens the file server when uninstall = $true (orchestrator owns transport)' {
+            # The file server lifecycle is the orchestrator's; the uninstall
+            # step does not stage anything but the orchestrator still pays
+            # the (cheap) open + close since other steps in the same run
+            # (e.g. files) may need it.
+            Invoke-VmPostProvisioning -Vm (New-VmWithJdkUninstall)
+            $global:_PostProv_Calls['Invoke-WithVmFileServer'].Count | Should -Be 1
+        }
+
+        It 'does NOT dispatch Install-Jdk or Uninstall-Jdk when javaDevKit is absent' {
             Invoke-VmPostProvisioning -Vm (New-VmWithFiles)
-            $global:_PostProv_Calls['Install-Jdk'].Count | Should -Be 0
+            $global:_PostProv_Calls['Install-Jdk'].Count   | Should -Be 0
+            $global:_PostProv_Calls['Uninstall-Jdk'].Count | Should -Be 0
+        }
+
+        It 'runs Copy-VmFiles before Uninstall-Jdk when both are set' {
+            $vm = New-VmWithJdkUninstall
+            Add-Member -InputObject $vm -MemberType NoteProperty -Name 'files' -Value @(
+                [PSCustomObject]@{ source = 'C:\src\a'; target = '/opt/a' }
+            )
+
+            $originalCopy   = ${function:global:Copy-VmFiles}
+            $originalUninst = ${function:global:Uninstall-Jdk}
+            $global:_PostProv_Order = @()
+            ${function:global:Copy-VmFiles}   = { param($SshClient, $Server, $Entries) $global:_PostProv_Order += 'files' }
+            ${function:global:Uninstall-Jdk}  = { param($SshClient, $Vm)               $global:_PostProv_Order += 'jdk-uninstall' }
+            try {
+                Invoke-VmPostProvisioning -Vm $vm
+                $global:_PostProv_Order | Should -Be @('files', 'jdk-uninstall')
+            }
+            finally {
+                ${function:global:Copy-VmFiles}  = $originalCopy
+                ${function:global:Uninstall-Jdk} = $originalUninst
+                Remove-Variable -Name _PostProv_Order -Scope Global -ErrorAction SilentlyContinue
+            }
         }
 
         It 'dispatches Copy-VmFiles when files is set, passing -Entries' {

@@ -9,6 +9,7 @@
 - [Quick start](#quick-start)
 - [setup-secrets.ps1](#setup-secretsps1)
   - [Optional: install a JDK](#optional-install-a-jdk)
+  - [Removing a JDK](#removing-a-jdk)
   - [Optional: copy files to the VM](#optional-copy-files-to-the-vm)
 - [provision.ps1](#provisionps1)
 - [deprovision.ps1](#deprovisionps1)
@@ -135,10 +136,11 @@ unaffected.
 }
 ```
 
-| Sub-field | Required | Allowed values                                                |
-|-----------|----------|---------------------------------------------------------------|
-| `vendor`  | yes      | `temurin` (Adoptium Temurin — currently the only supported vendor). |
-| `version` | yes      | A **string** in one of four granularities (see below).         |
+| Sub-field   | Type      | Required | Default | Allowed values                                                |
+|-------------|-----------|----------|---------|---------------------------------------------------------------|
+| `vendor`    | string    | yes      | —       | `temurin` (Adoptium Temurin — currently the only supported vendor). |
+| `version`   | string    | yes      | —       | A **string** in one of four granularities (see below).         |
+| `uninstall` | boolean?  | no       | `false` | Set to `true` on a previously provisioned VM to remove the JDK on the next run. See [Removing a JDK](#removing-a-jdk). |
 
 Version-string granularities — pick the level of pinning that suits you:
 
@@ -216,6 +218,46 @@ provisioner owns "software the box needs"; Vm-Users owns identities.
 The extraction step is idempotent — if the install directory's `release`
 file already exists, re-runs of `provision.ps1` are a no-op for the JDK
 step.
+
+### Removing a JDK
+
+To remove a previously installed JDK from a long-lived VM without
+rebuilding it, set `javaDevKit.uninstall` to `true` on the same VM entry
+and re-run `provision.ps1`:
+
+```jsonc
+{
+  "vmName": "dev-01",
+  "...":    "...",
+  "javaDevKit": {
+    "vendor":    "temurin",
+    "version":   "21",
+    "uninstall": true
+  }
+}
+```
+
+`vendor` and `version` stay required so the schema is uniform whether the
+operator is installing or uninstalling. The removal step uses only
+`vendor` (as the `/opt/jdk-{vendor}-*` install-dir prefix); `version` is
+ignored.
+
+On the VM, the removal step deletes `/opt/jdk-{vendor}-*` (matched by
+vendor prefix glob — the v1 invariant is one JDK per VM, so the prefix
+uniquely identifies the install), `/etc/profile.d/jdk.sh`, and any
+`/usr/local/bin` symlinks pointing into the removed install dir (the
+non-login-shell `PATH` wiring written by `Install-Jdk`). An empty glob
+match is a clean no-op.
+
+The provisioner does **not** rewrite the input JSON after a successful
+removal — the flag stays. Re-running with the flag still set is a clean
+no-op (everything is already gone), so it is safe to leave. When the
+operator is truly done with the JDK on that VM, delete the whole
+`javaDevKit` block in one explicit edit.
+
+The host-side tarball cache under `vhdPath` is **not** touched — it is
+keyed by `{vendor, requestedVersion}` and may be shared with other VMs
+that still want the install.
 
 ### Optional: copy files to the VM
 
@@ -300,6 +342,8 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
    dispatches one acquirer:
    - **`javaDevKit`** acquires the requested Temurin tarball into
      `vhdPath` (see [Optional: install a JDK](#optional-install-a-jdk)).
+     Skipped when `javaDevKit.uninstall` is `true` - no tarball is needed
+     for the removal path.
 
    Skipped silently for VMs that have no opt-in fields. Each acquirer is
    idempotent via its on-host lockfile, so a re-run against an already-
@@ -329,6 +373,10 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
       `/opt/jdk-{vendor}-{resolvedVersion}/` and writes
       `/etc/profile.d/jdk.sh`
       (see [Optional: install a JDK](#optional-install-a-jdk)).
+      When `javaDevKit.uninstall` is `true`, the orchestrator dispatches
+      the removal step instead (deletes `/opt/jdk-{vendor}-*`,
+      `/etc/profile.d/jdk.sh`, and stale `/usr/local/bin` symlinks) —
+      see [Removing a JDK](#removing-a-jdk).
 
     Each step is self-contained — no step consumes files left by another
     step. Adding a new step (e.g. Maven) is a one-function addition with
@@ -421,7 +469,8 @@ Infrastructure-VM-Provisioner/
 |     |  |  `- Invoke-VmAcquisitions.ps1        # Per-VM host-side acquisition orchestrator; dispatches each per-software acquirer guarded by its opt-in field
 |     |  |- post/
 |     |  |  |- Invoke-VmPostProvisioning.ps1    # Per-VM transport orchestrator (file server + SSH + cloud-init wait), dispatches steps; calls Infrastructure.HyperV's Copy-VmFiles for the 'files' step
-|     |  |  `- Install-Jdk.ps1                  # Step: extracts the prefetched JDK tarball and writes /etc/profile.d/jdk.sh
+|     |  |  |- Install-Jdk.ps1                  # Step: extracts the prefetched JDK tarball and writes /etc/profile.d/jdk.sh
+|     |  |  `- Uninstall-Jdk.ps1                # Step: removes /opt/jdk-{vendor}-*, /etc/profile.d/jdk.sh, and stale /usr/local/bin symlinks
 |     |  |- network/
 |     |  |  `- setup-network.ps1               # Creates VmLAN switch, host IP, NAT rule
 |     |  |- seed/

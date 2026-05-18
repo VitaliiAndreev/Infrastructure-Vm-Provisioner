@@ -1,4 +1,14 @@
 BeforeAll {
+    # Resolve-AdoptiumRelease wraps its Invoke-RestMethod call in
+    # Invoke-WithNetworkRetry (from Infrastructure.Common). Stub it as a
+    # pass-through so unit tests stay isolated from the real module - the
+    # retry policy itself is covered by Infrastructure.Common's own tests.
+    function Invoke-WithNetworkRetry {
+        param([scriptblock] $ScriptBlock, [string] $OperationName,
+              [int] $MaxAttempts, [int] $InitialDelaySeconds)
+        return & $ScriptBlock
+    }
+
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\jdk\Resolve-AdoptiumRelease.ps1"
 
     # ------------------------------------------------------------------

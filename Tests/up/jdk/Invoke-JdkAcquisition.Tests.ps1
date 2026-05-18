@@ -23,6 +23,16 @@ BeforeAll {
         }
     }
 
+    # The acquisition script wraps Invoke-WebRequest in Invoke-WithNetworkRetry
+    # (from Infrastructure.Common). Stub it as a pass-through so unit tests
+    # stay isolated from the real module - retry policy itself is covered
+    # by Infrastructure.Common's own tests.
+    function Invoke-WithNetworkRetry {
+        param([scriptblock] $ScriptBlock, [string] $OperationName,
+              [int] $MaxAttempts, [int] $InitialDelaySeconds)
+        return & $ScriptBlock
+    }
+
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\jdk\Invoke-JdkAcquisition.ps1"
 
     # Minimal VM object. All tests use the same vhdPath / javaDevKit so the

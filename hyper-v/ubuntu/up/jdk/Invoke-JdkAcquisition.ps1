@@ -77,9 +77,13 @@ function Invoke-JdkAcquisition {
             )
 
             try {
-                Invoke-WebRequest -Uri $lock.sourceUrl `
-                                  -OutFile $tarballPath `
-                                  -UseBasicParsing
+                Invoke-WithNetworkRetry `
+                    -OperationName "JDK self-heal download ($cacheKey)" `
+                    -ScriptBlock {
+                        Invoke-WebRequest -Uri $lock.sourceUrl `
+                                          -OutFile $tarballPath `
+                                          -UseBasicParsing
+                    }
             }
             catch {
                 throw (
@@ -120,9 +124,13 @@ function Invoke-JdkAcquisition {
         Write-Host "    From: $($release.DownloadUrl)"
         Write-Host "    To  : $tarballPath"
 
-        Invoke-WebRequest -Uri $release.DownloadUrl `
-                          -OutFile $tarballPath `
-                          -UseBasicParsing
+        Invoke-WithNetworkRetry `
+            -OperationName "JDK tarball download ($cacheKey)" `
+            -ScriptBlock {
+                Invoke-WebRequest -Uri $release.DownloadUrl `
+                                  -OutFile $tarballPath `
+                                  -UseBasicParsing
+            }
 
         $actualHash = (Get-FileHash -Path $tarballPath -Algorithm SHA256).Hash
         if ($actualHash -ine $release.Sha256) {

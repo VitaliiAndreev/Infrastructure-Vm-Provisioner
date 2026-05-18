@@ -16,6 +16,28 @@ BeforeAll {
             javaDevKit = [PSCustomObject]@{ vendor = 'temurin'; version = '21' }
         }
     }
+
+    function New-VmWithJdkUninstallFalse {
+        [PSCustomObject]@{
+            vmName     = 'node-01'
+            javaDevKit = [PSCustomObject]@{
+                vendor    = 'temurin'
+                version   = '21'
+                uninstall = $false
+            }
+        }
+    }
+
+    function New-VmWithJdkUninstallTrue {
+        [PSCustomObject]@{
+            vmName     = 'node-01'
+            javaDevKit = [PSCustomObject]@{
+                vendor    = 'temurin'
+                version   = '21'
+                uninstall = $true
+            }
+        }
+    }
 }
 
 Describe 'Invoke-VmAcquisitions' {
@@ -36,6 +58,19 @@ Describe 'Invoke-VmAcquisitions' {
             Invoke-VmAcquisitions -Vm (New-VmWithJdk)
             Should -Invoke Invoke-JdkAcquisition -Times 1 -Exactly `
                 -ParameterFilter { $Vm.vmName -eq 'node-01' }
+        }
+
+        It 'dispatches Invoke-JdkAcquisition when uninstall is explicitly $false' {
+            Mock Invoke-JdkAcquisition {}
+            Invoke-VmAcquisitions -Vm (New-VmWithJdkUninstallFalse)
+            Should -Invoke Invoke-JdkAcquisition -Times 1 -Exactly `
+                -ParameterFilter { $Vm.vmName -eq 'node-01' }
+        }
+
+        It 'skips Invoke-JdkAcquisition when uninstall is $true' {
+            Mock Invoke-JdkAcquisition {}
+            Invoke-VmAcquisitions -Vm (New-VmWithJdkUninstallTrue)
+            Should -Invoke Invoke-JdkAcquisition -Times 0
         }
     }
 }

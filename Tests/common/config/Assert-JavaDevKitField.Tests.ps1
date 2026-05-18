@@ -137,6 +137,51 @@ Describe 'Assert-JavaDevKitField' {
     }
 
     # ------------------------------------------------------------------
+    Context 'uninstall flag' {
+    # ------------------------------------------------------------------
+
+        It 'accepts uninstall = true alongside vendor and version' {
+            $vm = New-VmWithJdkJson '{ "vendor": "temurin", "version": "21", "uninstall": true }'
+            { Assert-JavaDevKitField -Vm $vm } | Should -Not -Throw
+        }
+
+        It 'accepts uninstall = false alongside vendor and version' {
+            $vm = New-VmWithJdkJson '{ "vendor": "temurin", "version": "21", "uninstall": false }'
+            { Assert-JavaDevKitField -Vm $vm } | Should -Not -Throw
+        }
+
+        It 'throws when uninstall is a string ("true")' {
+            $vm = New-VmWithJdkJson '{ "vendor": "temurin", "version": "21", "uninstall": "true" }'
+            { Assert-JavaDevKitField -Vm $vm } |
+                Should -Throw -ExpectedMessage "*uninstall*boolean*"
+        }
+
+        It 'throws when uninstall is a number (1)' {
+            $vm = New-VmWithJdkJson '{ "vendor": "temurin", "version": "21", "uninstall": 1 }'
+            { Assert-JavaDevKitField -Vm $vm } |
+                Should -Throw -ExpectedMessage "*uninstall*boolean*"
+        }
+
+        It 'throws when uninstall is null' {
+            $vm = New-VmWithJdkJson '{ "vendor": "temurin", "version": "21", "uninstall": null }'
+            { Assert-JavaDevKitField -Vm $vm } |
+                Should -Throw -ExpectedMessage "*uninstall*boolean*"
+        }
+
+        It 'throws when uninstall = true but vendor is missing (uniformity preserved)' {
+            $vm = New-VmWithJdkJson '{ "version": "21", "uninstall": true }'
+            { Assert-JavaDevKitField -Vm $vm } |
+                Should -Throw -ExpectedMessage "*vendor*"
+        }
+
+        It 'throws when uninstall = true but version is missing (uniformity preserved)' {
+            $vm = New-VmWithJdkJson '{ "vendor": "temurin", "uninstall": true }'
+            { Assert-JavaDevKitField -Vm $vm } |
+                Should -Throw -ExpectedMessage "*version*"
+        }
+    }
+
+    # ------------------------------------------------------------------
     Context 'shape validation' {
     # ------------------------------------------------------------------
 

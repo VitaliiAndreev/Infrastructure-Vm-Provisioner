@@ -81,11 +81,18 @@ function Select-VmsForProvisioning {
 
 # ---------------------------------------------------------------------------
 # Test-IpAddressInUse
-#   Returns $true if the IP address responds to a ping within 1000 ms.
+#   Returns $true if the IP address responds to either an ICMP ping (within
+#   1000 ms) or a TCP probe on the SSH port. Either signal is sufficient
+#   because some VMs (e.g. Ubuntu with a restrictive host firewall) drop
+#   ICMP but still serve SSH, and conversely a squatter on the subnet may
+#   answer ping without exposing SSH. ORing both probes catches both
+#   classes of "the IP is taken".
 #
 #   [System.Net.NetworkInformation.Ping] is used instead of Test-Connection
 #   for predictability: Test-Connection returns rich objects and requires
 #   -Count 1; the .NET API is a direct call with a clear return value.
+#   SSH reachability is delegated to Test-VmSshPort (Infrastructure.HyperV)
+#   so the pre-flight and the downstream gate use the same probe.
 # ---------------------------------------------------------------------------
 function Test-IpAddressInUse {
     [CmdletBinding()]
@@ -98,5 +105,11 @@ function Test-IpAddressInUse {
     $result = $ping.Send($IpAddress, 1000)
     $ping.Dispose()
 
-    return $result.Status -eq [System.Net.NetworkInformation.IPStatus]::Success
+    if ($result.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
+        return $true
+    }
+
+    # ICMP silent - fall back to an SSH-port TCP probe so VMs that block
+    # ping but accept SSH are still recognised as reachable.
+    return [bool] (Test-VmSshPort -IpAddress $IpAddress -Port 22)
 }

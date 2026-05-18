@@ -59,8 +59,9 @@ function Invoke-VmPostProvisioning {
     # entirely - the variables themselves are preserved by GetNewClosure().
     # Module-exported cmdlets (e.g. Copy-VmFiles) work the same way under
     # this approach, so the dispatch is uniform.
-    $copyVmFiles = ${function:Copy-VmFiles}
-    $installJdk  = ${function:Install-Jdk}
+    $copyVmFiles  = ${function:Copy-VmFiles}
+    $installJdk   = ${function:Install-Jdk}
+    $uninstallJdk = ${function:Uninstall-Jdk}
 
     $postBlock = {
         param($server)
@@ -106,7 +107,18 @@ function Invoke-VmPostProvisioning {
                 Write-Host "  [files] [OK] all copies complete." -ForegroundColor Green
             }
             if ($hasJdk) {
-                & $installJdk -SshClient $sshClient -Server $server -Vm $vmRef
+                # Pick install OR uninstall based on the flag; never both.
+                # Installing-then-uninstalling in a single run is nonsense;
+                # uninstalling-then-installing belongs in two explicit
+                # provision runs so the operator's intent stays visible in
+                # the JSON between them.
+                $jdk = $vmRef.javaDevKit
+                $uninstallProp = $jdk.PSObject.Properties['uninstall']
+                if ($null -ne $uninstallProp -and $uninstallProp.Value -eq $true) {
+                    & $uninstallJdk -SshClient $sshClient -Vm $vmRef
+                } else {
+                    & $installJdk -SshClient $sshClient -Server $server -Vm $vmRef
+                }
             }
         }
         finally {
