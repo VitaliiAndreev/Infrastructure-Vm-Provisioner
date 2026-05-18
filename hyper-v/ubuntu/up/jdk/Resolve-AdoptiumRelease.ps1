@@ -35,7 +35,13 @@ function Invoke-AdoptiumFeatureReleases {
         "&page_size=$PageSize&sort_order=DESC"
     )
 
-    return Invoke-RestMethod -Uri $uri -UseBasicParsing
+    # Wrapped in Invoke-WithNetworkRetry so transient DNS / connectivity
+    # blips against api.adoptium.net do not fail a provision run. 4xx
+    # responses (e.g. an unknown major version) propagate immediately -
+    # see Test-TransientNetworkException.
+    return Invoke-WithNetworkRetry `
+        -OperationName "Adoptium feature_releases lookup (major $Major)" `
+        -ScriptBlock { Invoke-RestMethod -Uri $uri -UseBasicParsing }
 }
 
 function Resolve-AdoptiumRelease {
