@@ -68,41 +68,10 @@ function Invoke-VmPostProvisioning {
 
         $sshClient = $null
         try {
-            # cloud-init binds sshd at boot but creates the OS user later
-            # in its 'users' module - Test-VmSshPort returns true on
-            # port-open, which can precede user existence by several
-            # seconds. New-VmSshClient then throws "Permission denied
-            # (password)" because the account does not yet exist. Retry
-            # for a bounded bootstrap window so the first SSH session
-            # does not lose this race. Only "Permission denied" is
-            # retried; any other failure (DNS, refused, host unreachable)
-            # propagates immediately.
-            $sshConnectMaxAttempts  = 8
-            $sshConnectDelaySeconds = 4
-            for ($attempt = 1; $attempt -le $sshConnectMaxAttempts; $attempt++) {
-                try {
-                    $sshClient = New-VmSshClient `
-                                     -IpAddress $vmIp `
-                                     -Username  $username `
-                                     -Password  $password
-                    break
-                }
-                catch {
-                    $isBootstrapAuthRace =
-                        $_.Exception.Message -match 'Permission denied'
-                    if (-not $isBootstrapAuthRace -or
-                            $attempt -ge $sshConnectMaxAttempts) {
-                        throw
-                    }
-                    Write-Warning (
-                        "SSH auth to $vmName not ready yet " +
-                        "(attempt $attempt/$sshConnectMaxAttempts): " +
-                        "$($_.Exception.Message). cloud-init may still be " +
-                        "creating the OS user. " +
-                        "Retrying in ${sshConnectDelaySeconds}s ...")
-                    Start-Sleep -Seconds $sshConnectDelaySeconds
-                }
-            }
+            $sshClient = New-VmSshClient `
+                             -IpAddress $vmIp `
+                             -Username  $username `
+                             -Password  $password
 
             # cloud-init may still be running its later modules (apt holding
             # the dpkg lock, runcmd not yet started). Wait once, here, so no

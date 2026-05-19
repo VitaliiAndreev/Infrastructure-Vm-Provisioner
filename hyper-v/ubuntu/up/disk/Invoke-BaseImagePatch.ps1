@@ -6,15 +6,28 @@
 
 # ---------------------------------------------------------------------------
 # Invoke-BaseImagePatch
-#   Patches the cloud-init datasource config inside a base VHDX so that the
-#   NoCloud seed ISO is consulted on first boot instead of the Azure IMDS.
+#   Applies two first-boot fixes inside a base VHDX so the same patch pass
+#   covers both. Both writes happen on the same mounted root partition.
 #
-#   The Ubuntu Azure cloud image ships with a datasource restriction:
-#     datasource_list: [ Azure ]
-#   On a local Hyper-V host, cloud-init cannot reach the Azure IMDS, falls
-#   back to 'None', and never reads the seed ISO. This function writes a
-#   higher-priority override file (99-nocloud.cfg) into
-#   /etc/cloud/cloud.cfg.d/ inside the VHDX to add NoCloud.
+#   Patch 1: cloud-init NoCloud datasource
+#     The Ubuntu Azure cloud image ships with a datasource restriction:
+#       datasource_list: [ Azure ]
+#     On a local Hyper-V host, cloud-init cannot reach the Azure IMDS,
+#     falls back to 'None', and never reads the seed ISO. This function
+#     writes a higher-priority override file (99-nocloud.cfg) into
+#     /etc/cloud/cloud.cfg.d/ inside the VHDX to add NoCloud.
+#
+#   Patch 2: order sshd after cloud-init
+#     Ubuntu cloud images ship with openssh-server already installed and
+#     enabled, so ssh.service binds port 22 at boot - BEFORE cloud-init's
+#     'users' and 'set_passwords' modules have created the OS user. The
+#     host's TCP-port probe then returns "SSH reachable" while password
+#     auth still fails with "Permission denied (password)". Writing a
+#     systemd drop-in that adds After=cloud-init.target + Wants= to
+#     ssh.service and ssh.socket defers port-22 binding until cloud-init
+#     has fully finished, making the host's port probe a meaningful
+#     "ready for auth" signal. Fixes the race at its source - no client-
+#     side retry needed.
 #
 #   Implementation:
 #     1. Skip immediately if the sentinel file is present (already patched).
@@ -35,7 +48,12 @@
 #   Parameters:
 #     BaseImagePath  - absolute path to the base .vhdx to patch.
 #     SentinelPath   - absolute path to the sentinel file that marks the
-#                      patch as done (conventionally <base>.nocloud-patched).
+#                      patch as done (conventionally <base>.image-patched).
+#                      Old name <base>.nocloud-patched is from when only
+#                      Patch 1 existed - callers using the new sentinel
+#                      name will cause one re-patch pass on previously
+#                      patched images, which is the intended migration
+#                      path: existing images then pick up Patch 2.
 # ---------------------------------------------------------------------------
 
 function Invoke-BaseImagePatch {
@@ -136,10 +154,17 @@ function Invoke-BaseImagePatch {
 
         # Shell script: iterate partition devices (sdX1, sdX2, ...), try
         # mounting each as ext4, confirm root by checking /etc/os-release,
-        # then write 99-nocloud.cfg and sync before unmounting.
-        # sync ensures kernel buffers are flushed to the backing VHDX
-        # before we detach, which prevents a silent data-loss scenario
-        # where the write succeeds in kernel memory but never reaches disk.
+        # then write both patches (cloud-init NoCloud datasource + sshd
+        # ordering drop-in) and sync before unmounting. sync ensures
+        # kernel buffers are flushed to the backing VHDX before we detach,
+        # which prevents a silent data-loss scenario where the writes
+        # succeed in kernel memory but never reach disk.
+        #
+        # Patch 2 writes the same drop-in into both ssh.service.d/ and
+        # ssh.socket.d/. ssh.socket may not exist on every image (Ubuntu
+        # Server defaults to ssh.service); an orphan drop-in directory is
+        # harmless to systemd, so writing both unconditionally is simpler
+        # than introspecting which unit is active.
         #
         # The script is encoded as base64 so it can be passed to WSL as a
         # single argument to 'echo', avoiding:
@@ -156,6 +181,11 @@ function Invoke-BaseImagePatch {
             '      CFG="$M/etc/cloud/cloud.cfg.d"'
             '      mkdir -p "$CFG"'
             '      printf "datasource_list: [ NoCloud, None ]\n" > "$CFG/99-nocloud.cfg"'
+            '      for UNIT in ssh.service ssh.socket; do'
+            '        DROP="$M/etc/systemd/system/$UNIT.d"'
+            '        mkdir -p "$DROP"'
+            '        printf "[Unit]\nAfter=cloud-init.target\nWants=cloud-init.target\n" > "$DROP/10-wait-cloud-init.conf"'
+            '      done'
             '      echo "OK:$P:$(ls $CFG)"'
             '      sync'
             '      umount "$M"'
