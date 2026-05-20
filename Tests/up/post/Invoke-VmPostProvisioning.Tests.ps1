@@ -37,6 +37,7 @@ BeforeAll {
         'Install-Jdk'             = @()
         'Uninstall-Jdk'           = @()
         'Copy-VmFiles'            = @()
+        'Copy-VmFilesByPattern'   = @()
         'Invoke-WithVmFileServer' = @()
     }
     function global:Reset-PostProvCallLog {
@@ -115,6 +116,17 @@ BeforeAll {
         $global:_PostProv_Calls['Copy-VmFiles'] += @{ Entries = $Entries }
     }
 
+    function global:Copy-VmFilesByPattern {
+        param($SshClient, $Server, $Pattern, $TargetDir,
+              [switch]$Recurse, [switch]$PreserveRelativePath)
+        $global:_PostProv_Calls['Copy-VmFilesByPattern'] += @{
+            Pattern              = $Pattern
+            TargetDir            = $TargetDir
+            Recurse              = [bool]$Recurse
+            PreserveRelativePath = [bool]$PreserveRelativePath
+        }
+    }
+
     . "$PSScriptRoot\..\..\..\hyper-v\ubuntu\up\post\Invoke-VmPostProvisioning.ps1"
 
     function New-PlainVm {
@@ -162,13 +174,45 @@ BeforeAll {
         )
         $vm
     }
+
+    function New-VmWithBulkFile {
+        $vm = New-PlainVm
+        Add-Member -InputObject $vm -MemberType NoteProperty -Name 'files' -Value @(
+            [PSCustomObject]@{ pattern = 'C:\jars\*.jar'; targetDir = '/opt/ci-jars' }
+        )
+        $vm
+    }
+
+    function New-VmWithBulkFileAllSwitches {
+        $vm = New-PlainVm
+        Add-Member -InputObject $vm -MemberType NoteProperty -Name 'files' -Value @(
+            [PSCustomObject]@{
+                pattern              = 'C:\jars\*.jar'
+                targetDir            = '/opt/ci-jars'
+                recurse              = $true
+                preserveRelativePath = $true
+            }
+        )
+        $vm
+    }
+
+    function New-VmWithMixedFiles {
+        $vm = New-PlainVm
+        Add-Member -InputObject $vm -MemberType NoteProperty -Name 'files' -Value @(
+            [PSCustomObject]@{ source = 'C:\src\a'; target = '/opt/a' },
+            [PSCustomObject]@{ pattern = 'C:\jars\*.jar'; targetDir = '/opt/ci-jars' },
+            [PSCustomObject]@{ source = 'C:\src\b'; target = '/opt/b' }
+        )
+        $vm
+    }
 }
 
 AfterAll {
     foreach ($name in @(
             'Invoke-WithVmFileServer', 'New-VmSshClient',
             'Invoke-SshClientCommand', 'Install-Jdk', 'Uninstall-Jdk',
-            'Copy-VmFiles', 'Reset-PostProvCallLog')) {
+            'Copy-VmFiles', 'Copy-VmFilesByPattern',
+            'Reset-PostProvCallLog')) {
         Remove-Item -Path "function:global:$name" -ErrorAction SilentlyContinue
     }
     foreach ($name in @(
@@ -313,7 +357,119 @@ Describe 'Invoke-VmPostProvisioning' {
 
         It 'does NOT dispatch Copy-VmFiles when files is absent' {
             Invoke-VmPostProvisioning -Vm (New-VmWithJdk)
+            $global:_PostProv_Calls['Copy-VmFiles'].Count          | Should -Be 0
+            $global:_PostProv_Calls['Copy-VmFilesByPattern'].Count | Should -Be 0
+        }
+
+        It 'dispatches Copy-VmFilesByPattern (not Copy-VmFiles) for a bulk entry' {
+            # Defaults for optional booleans are applied at the dispatch
+            # site, not in the validator, so an entry without them must
+            # still surface as $false to the transport.
+            Invoke-VmPostProvisioning -Vm (New-VmWithBulkFile)
+
+            $bulk = $global:_PostProv_Calls['Copy-VmFilesByPattern']
+            $bulk.Count                  | Should -Be 1
+            $bulk[0].Pattern             | Should -Be 'C:\jars\*.jar'
+            $bulk[0].TargetDir           | Should -Be '/opt/ci-jars'
+            $bulk[0].Recurse             | Should -Be $false
+            $bulk[0].PreserveRelativePath | Should -Be $false
             $global:_PostProv_Calls['Copy-VmFiles'].Count | Should -Be 0
+        }
+
+        It 'forwards recurse / preserveRelativePath when set on a bulk entry' {
+            Invoke-VmPostProvisioning -Vm (New-VmWithBulkFileAllSwitches)
+
+            $bulk = $global:_PostProv_Calls['Copy-VmFilesByPattern']
+            $bulk.Count                   | Should -Be 1
+            $bulk[0].Recurse              | Should -Be $true
+            $bulk[0].PreserveRelativePath | Should -Be $true
+        }
+
+        It 'dispatches mixed [single, bulk, single] entries in JSON order' {
+            # JSON order is the contract the dispatch loop preserves; both
+            # transports share the same SSH session, so there is no
+            # batching win to chase by grouping by form.
+            $originalCopy = ${function:global:Copy-VmFiles}
+            $originalBulk = ${function:global:Copy-VmFilesByPattern}
+            $global:_PostProv_Order = @()
+            ${function:global:Copy-VmFiles} = {
+                param($SshClient, $Server, $Entries)
+                $global:_PostProv_Order += "single:$($Entries[0].Source)"
+            }
+            ${function:global:Copy-VmFilesByPattern} = {
+                param($SshClient, $Server, $Pattern, $TargetDir,
+                      [switch]$Recurse, [switch]$PreserveRelativePath)
+                $global:_PostProv_Order += "bulk:$Pattern"
+            }
+            try {
+                Invoke-VmPostProvisioning -Vm (New-VmWithMixedFiles)
+                $global:_PostProv_Order | Should -Be @(
+                    'single:C:\src\a',
+                    'bulk:C:\jars\*.jar',
+                    'single:C:\src\b'
+                )
+            }
+            finally {
+                ${function:global:Copy-VmFiles}          = $originalCopy
+                ${function:global:Copy-VmFilesByPattern} = $originalBulk
+                Remove-Variable -Name _PostProv_Order -Scope Global -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'runs files entries before Install-Jdk when both a bulk entry and javaDevKit are set' {
+            $vm = New-VmWithJdk
+            Add-Member -InputObject $vm -MemberType NoteProperty -Name 'files' -Value @(
+                [PSCustomObject]@{ pattern = 'C:\jars\*.jar'; targetDir = '/opt/ci-jars' }
+            )
+
+            $originalBulk = ${function:global:Copy-VmFilesByPattern}
+            $originalInst = ${function:global:Install-Jdk}
+            $global:_PostProv_Order = @()
+            ${function:global:Copy-VmFilesByPattern} = {
+                param($SshClient, $Server, $Pattern, $TargetDir,
+                      [switch]$Recurse, [switch]$PreserveRelativePath)
+                $global:_PostProv_Order += 'files-bulk'
+            }
+            ${function:global:Install-Jdk} = {
+                param($SshClient, $Server, $Vm)
+                $global:_PostProv_Order += 'jdk'
+            }
+            try {
+                Invoke-VmPostProvisioning -Vm $vm
+                $global:_PostProv_Order | Should -Be @('files-bulk', 'jdk')
+            }
+            finally {
+                ${function:global:Copy-VmFilesByPattern} = $originalBulk
+                ${function:global:Install-Jdk}           = $originalInst
+                Remove-Variable -Name _PostProv_Order -Scope Global -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'propagates Copy-VmFilesByPattern failures and still disposes the SSH client' {
+            # Simulates the resolver's zero-match / collision errors, which
+            # throw before any SSH I/O for the entry. The orchestrator's
+            # finally block must still tear down the SSH session.
+            $vm = New-VmWithBulkFile
+            $originalBulk = ${function:global:Copy-VmFilesByPattern}
+            $script:_DisposedClient = $null
+            $global:_PostProv_FakeSshClient | Add-Member -MemberType ScriptMethod `
+                -Name 'Dispose' -Force -Value { $script:_DisposedClient = $true }
+            ${function:global:Copy-VmFilesByPattern} = {
+                param($SshClient, $Server, $Pattern, $TargetDir,
+                      [switch]$Recurse, [switch]$PreserveRelativePath)
+                throw "resolver: pattern '$Pattern' matched zero files"
+            }
+            try {
+                { Invoke-VmPostProvisioning -Vm $vm } |
+                    Should -Throw -ExpectedMessage '*matched zero files*'
+                $script:_DisposedClient | Should -Be $true
+            }
+            finally {
+                ${function:global:Copy-VmFilesByPattern} = $originalBulk
+                $global:_PostProv_FakeSshClient | Add-Member -MemberType ScriptMethod `
+                    -Name 'Dispose' -Force -Value {}
+                Remove-Variable -Name _DisposedClient -Scope Script -ErrorAction SilentlyContinue
+            }
         }
 
         It 'dispatches Copy-VmFiles before Install-Jdk when both are set' {

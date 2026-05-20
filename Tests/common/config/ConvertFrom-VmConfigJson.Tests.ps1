@@ -24,7 +24,13 @@ BeforeAll {
     # Assert-VmFilesField is supplied by Infrastructure.HyperV at runtime.
     # Stub it here so the wiring test can mock it without loading the module.
     function Assert-VmFilesField {
-        param($Vm, $AllowedSubFields, $PostEntryValidator, $PostEntryValidatorContext)
+        param(
+            $Vm,
+            $AllowedSubFields,
+            [switch] $AllowBulkEntries,
+            $PostEntryValidator,
+            $PostEntryValidatorContext
+        )
     }
 
     # Builds a minimal valid VM definition with all required fields populated.
@@ -210,10 +216,69 @@ Describe 'ConvertFrom-VmConfigJson' {
             Should -Invoke Assert-VmFilesField -Times 2 -Exactly
         }
 
+        It 'opts into bulk entries via -AllowBulkEntries' {
+            # The opt-in is the only schema-surface change in this step.
+            # Asserted here so a future caller cannot silently drop the
+            # switch and lock the provisioner back into single-form-only.
+            Mock Assert-VmFilesField {}
+            @(ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]")
+            Should -Invoke Assert-VmFilesField -Times 1 -Exactly -ParameterFilter {
+                $AllowBulkEntries.IsPresent -and
+                ($AllowedSubFields -join ',') -eq 'source,target'
+            }
+        }
+
         It 'propagates a throw from Assert-VmFilesField' {
             Mock Assert-VmFilesField { throw "files[0].source path does not exist" }
             { ConvertFrom-VmConfigJson -Json "[$(New-ValidVmJson)]" } |
                 Should -Throw -ExpectedMessage "*files*"
+        }
+    }
+
+    # ------------------------------------------------------------------
+    Context 'files round-trip (bulk-form entries preserved)' {
+    # ------------------------------------------------------------------
+
+        # Behaviour of the bulk validator itself (missing targetDir, unknown
+        # sub-fields, etc.) is covered by Assert-VmFilesField's own tests
+        # in Infrastructure-HyperV. These cases only assert that opting in
+        # at the call site does not drop or rename any field on the way
+        # through the schema layer.
+
+        # Helper inlined per test: Pester 5 hoists function definitions in
+        # BeforeAll, but a function defined inside a Context body is not in
+        # scope for the It blocks. Building the JSON inline keeps the
+        # round-trip cases self-contained without a Context-level BeforeAll.
+
+        It 'preserves a single bulk entry on the returned VM' {
+            $files = '[{ "pattern": "C:\\jars\\*.jar", "targetDir": "/opt/ci-jars" }]'
+            $core  = (New-ValidVmJson) -replace '\}\s*$', ''
+            $result = @(ConvertFrom-VmConfigJson -Json "[$core, ""files"": $files }]")
+            $result[0].files | Should -HaveCount 1
+            $result[0].files[0].pattern   | Should -Be 'C:\jars\*.jar'
+            $result[0].files[0].targetDir | Should -Be '/opt/ci-jars'
+        }
+
+        It 'preserves a mixed single + bulk entry array in source order' {
+            $files = @'
+[
+    { "source": "C:\\seed.json", "target": "/var/data/seed.json" },
+    { "pattern": "C:\\jars\\*.jar", "targetDir": "/opt/ci-jars" }
+]
+'@
+            $core  = (New-ValidVmJson) -replace '\}\s*$', ''
+            $result = @(ConvertFrom-VmConfigJson -Json "[$core, ""files"": $files }]")
+            $result[0].files | Should -HaveCount 2
+            $result[0].files[0].source  | Should -Be 'C:\seed.json'
+            $result[0].files[1].pattern | Should -Be 'C:\jars\*.jar'
+        }
+
+        It 'preserves the optional recurse and preserveRelativePath booleans' {
+            $files = '[{ "pattern": "C:\\jars\\**\\*.jar", "targetDir": "/opt/ci-jars", "recurse": true, "preserveRelativePath": true }]'
+            $core  = (New-ValidVmJson) -replace '\}\s*$', ''
+            $result = @(ConvertFrom-VmConfigJson -Json "[$core, ""files"": $files }]")
+            $result[0].files[0].recurse              | Should -BeTrue
+            $result[0].files[0].preserveRelativePath | Should -BeTrue
         }
     }
 

@@ -64,12 +64,16 @@ function ConvertFrom-VmConfigJson {
         # Optional-field validators. Each one is a no-op when its field is
         # absent and throws with a descriptive message when present-but-malformed.
         # Assert-VmFilesField is the shared validator from Infrastructure.HyperV;
-        # arguments are spelled out so the provisioner's policy ("source +
-        # target only, no per-entry rules") is readable at the call site
-        # instead of hidden in the cmdlet's defaults.
+        # arguments are spelled out so the provisioner opts into both entry
+        # forms (single { source, target } and bulk { pattern, targetDir, ... })
+        # at the call site instead of relying on the cmdlet's defaults.
+        # -AllowedSubFields governs only the single form; the bulk form's
+        # allow-list is fixed inside Assert-VmFilesField by contract with
+        # Copy-VmFilesByPattern.
         Assert-JavaDevKitField -Vm $vm
         Assert-VmFilesField `
             -Vm                $vm `
+            -AllowBulkEntries `
             -AllowedSubFields  @('source', 'target') `
             -PostEntryValidator $null
 

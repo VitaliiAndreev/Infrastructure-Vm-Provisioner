@@ -59,9 +59,10 @@ function Invoke-VmPostProvisioning {
     # entirely - the variables themselves are preserved by GetNewClosure().
     # Module-exported cmdlets (e.g. Copy-VmFiles) work the same way under
     # this approach, so the dispatch is uniform.
-    $copyVmFiles  = ${function:Copy-VmFiles}
-    $installJdk   = ${function:Install-Jdk}
-    $uninstallJdk = ${function:Uninstall-Jdk}
+    $copyVmFiles          = ${function:Copy-VmFiles}
+    $copyVmFilesByPattern = ${function:Copy-VmFilesByPattern}
+    $installJdk           = ${function:Install-Jdk}
+    $uninstallJdk         = ${function:Uninstall-Jdk}
 
     $postBlock = {
         param($server)
@@ -96,14 +97,50 @@ function Invoke-VmPostProvisioning {
             if ($hasFiles) {
                 # Provisioner policy: every user file lands as root:root, 0644.
                 # User-owned files belong in Vm-Users (which runs after the
-                # users exist). Mapping the JSON shape { source, target } to
-                # the transport's { Source, Target } is the consumer's job;
-                # the transport stays generic.
-                Write-Host "  [files] copying $(@($vmRef.files).Count) file(s) ..."
-                $entries = @($vmRef.files) | ForEach-Object {
-                    [PSCustomObject]@{ Source = $_.source; Target = $_.target }
+                # users exist). Each entry is dispatched in JSON order so
+                # operator-visible logging and any later side effects appear
+                # in the same order the operator wrote them - per-entry
+                # routing (not "all singles then all bulks") keeps that
+                # contract while letting each bulk entry surface its
+                # resolver errors (zero matches, target collisions) against
+                # the specific files entry that triggered them, so the
+                # operator knows which entry to fix.
+                Write-Host "  [files] processing $(@($vmRef.files).Count) entry(s) ..."
+                foreach ($entry in @($vmRef.files)) {
+                    # Discriminator: presence of 'pattern' => bulk form,
+                    # otherwise the existing single-file form. Step 2's
+                    # schema guarantees the entry is well-formed for
+                    # whichever branch matches.
+                    if ($entry.PSObject.Properties['pattern']) {
+                        $pattern   = $entry.pattern
+                        $targetDir = $entry.targetDir
+                        # Optional booleans default to $false when absent so
+                        # the JSON round-trip in the schema stays a pure
+                        # pass-through (default applied here, not in the
+                        # validator).
+                        $recurseProp = $entry.PSObject.Properties['recurse']
+                        $recurse = if ($null -ne $recurseProp) {
+                            [bool]$recurseProp.Value
+                        } else { $false }
+                        $preserveProp = $entry.PSObject.Properties['preserveRelativePath']
+                        $preserveRelativePath = if ($null -ne $preserveProp) {
+                            [bool]$preserveProp.Value
+                        } else { $false }
+                        Write-Host "  [files] bulk: $pattern -> $targetDir"
+                        & $copyVmFilesByPattern -SshClient $sshClient `
+                                                -Server $server `
+                                                -Pattern $pattern `
+                                                -TargetDir $targetDir `
+                                                -Recurse:$recurse `
+                                                -PreserveRelativePath:$preserveRelativePath
+                    } else {
+                        $singleEntries = @(
+                            [PSCustomObject]@{ Source = $entry.source; Target = $entry.target }
+                        )
+                        Write-Host "  [files] single: $($entry.source) -> $($entry.target)"
+                        & $copyVmFiles -SshClient $sshClient -Server $server -Entries $singleEntries
+                    }
                 }
-                & $copyVmFiles -SshClient $sshClient -Server $server -Entries $entries
                 Write-Host "  [files] [OK] all copies complete." -ForegroundColor Green
             }
             if ($hasJdk) {

@@ -11,6 +11,7 @@
   - [Optional: install a JDK](#optional-install-a-jdk)
   - [Removing a JDK](#removing-a-jdk)
   - [Optional: copy files to the VM](#optional-copy-files-to-the-vm)
+    - [Bulk entries](#bulk-entries)
 - [provision.ps1](#provisionps1)
 - [deprovision.ps1](#deprovisionps1)
 - [CI](#ci)
@@ -300,6 +301,46 @@ creates the users.
 reads from these paths. Each install is self-contained. This keeps the
 contract simple: the user owns the target paths and what lives there.
 
+#### Bulk entries
+
+For a directory of related files (a JAR classpath, a fixtures tree, ...),
+a bulk entry copies every match of a host wildcard under one VM target
+directory without enumerating each file in the config. Single and bulk
+entries can be mixed freely in the same `files` array.
+
+```jsonc
+{
+  "vmName": "ci-01",
+  "...":    "...",
+  "files": [
+    { "pattern": "C:\\jars\\*.jar", "targetDir": "/opt/ci-jars" }
+  ]
+}
+```
+
+| Sub-field              | Required | Default | Notes                                                                                                  |
+|------------------------|----------|---------|--------------------------------------------------------------------------------------------------------|
+| `pattern`              | yes      | —       | Host-side wildcard accepted by `Get-ChildItem -Path`. Must match at least one file when the transport runs. |
+| `targetDir`            | yes      | —       | Absolute Linux directory on the VM (must start with `/`). Created if absent.                            |
+| `recurse`              | no       | `false` | Descend into subdirectories of `pattern`'s root.                                                        |
+| `preserveRelativePath` | no       | `false` | Mirror the host subtree under `targetDir` instead of flattening every match to its basename. Useful for a Maven-style tree. |
+
+`source` and `pattern` are mutually exclusive on a single entry — mixing
+them is a validation error so the intent stays unambiguous. Bulk entries
+land `root:root, 0644`, same as single entries, with the same ownership
+rationale described above.
+
+Each bulk entry runs as its own `Copy-VmFilesByPattern` call, dispatched
+in JSON order alongside any single entries in the same array. Errors
+(zero matches, target-path collisions) are reported per entry, before
+any SSH I/O happens for that entry — so a misspelled pattern names
+itself in the failure instead of being lost in a batched run.
+
+The transport is delegated to `Infrastructure.HyperV`'s
+[`Copy-VmFilesByPattern`](https://github.com/VitaliiAndreev/Infrastructure-HyperV/blob/master/Infrastructure.HyperV/Public/FileTransfer/Copy-VmFilesByPattern.ps1) —
+see its notes for the exact wildcard semantics (including the zero-match
+and target-collision pre-flight errors raised before any SSH I/O).
+
 ---
 
 ## provision.ps1
@@ -367,8 +408,10 @@ Reads `VmProvisionerConfig` from the vault and for each VM definition:
 9. **(new AND existing VMs)** Runs post-provisioning. Opens one host file server and
     one SSH session per VM, waits once for cloud-init to finish, then
     dispatches each enabled step:
-    - **`files`** copies host files to declared VM paths
-      (see [Optional: copy files to the VM](#optional-copy-files-to-the-vm)).
+    - **`files`** copies host files to declared VM paths (each entry is
+      dispatched in JSON order: single entries via `Copy-VmFiles`, bulk
+      entries via `Copy-VmFilesByPattern`; see
+      [Optional: copy files to the VM](#optional-copy-files-to-the-vm)).
     - **`javaDevKit`** extracts the prefetched Temurin tarball into
       `/opt/jdk-{vendor}-{resolvedVersion}/` and writes
       `/etc/profile.d/jdk.sh`
